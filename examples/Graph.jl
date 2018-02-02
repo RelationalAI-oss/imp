@@ -1,9 +1,8 @@
 module Graph
 
-using Data
-using Query
-using Flows
-using Flows.@view
+using Imp.Data
+using Examples.LegacyParser
+
 using BenchmarkTools
 using Base.Test
 

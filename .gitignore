@@ -1,4 +1,5 @@
 job/
+data/imdb.jld
 
 lb/proto-gen
 lb/LB_SUMMARY.lbp

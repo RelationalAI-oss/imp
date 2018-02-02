@@ -2,7 +2,7 @@
 Parser for legacy query syntax, to avoid having to rewrite Job.jl
 """
 
-module JobParser
+module LegacyParser
 
 using Match
 
@@ -84,8 +84,8 @@ function parse_call(exprs, init, mod::Module) ::FunCall
   end
 end
 
-function parse_query(body, mod::Module) ::Tuple{Dict{Symbol, Expr}, Lambda}
-  init = Dict{Symbol, Expr}()
+function parse_query(body, mod::Module) ::Tuple{Dict{Symbol, Any}, Lambda}
+  init = Dict{Symbol, Any}()
   
   # just use bool ring
   ring = Ring(|, &, true, false, true)

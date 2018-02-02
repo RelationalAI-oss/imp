@@ -1,10 +1,8 @@
 module Job
 
 using Imp.Data
-using Imp.Compiler
-
-using JobData
-using JobParser
+using Examples.JobData
+using Examples.LegacyParser
 
 using Base.Test
 using BenchmarkTools
