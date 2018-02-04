@@ -3,6 +3,7 @@ module JobData
 # separate module because this takes a long time, don't want to rerun it every test
 
 using DataFrames
+using Missings
 using JLD
 
 using Imp.Data
@@ -16,13 +17,11 @@ function intern{T}(column::Vector{T})
   end
 end
 
-function zero_na{T}(column::Vector{T}, na::BitVector)
+function zero_missing_vals{T}(column::Vector{Union{T, Missings.Missing}}) 
   if T <: Integer
-    for ix in 1:length(column)
-      if na[ix]
-        column[ix] = zero(T)
-      end
-    end
+    return T[ismissing(elem) ? 0 : elem for elem in column]
+  else
+    return column
   end
 end
 
@@ -62,9 +61,10 @@ if !isfile("./data/imdb.jld")
     frame = readtable(open("../imdb/$(table_name).csv"), header=false, eltypes=column_types)
     for ix in 1:length(frame.columns)
       column = frame.columns[ix]
-      intern(column.data)
-      zero_na(column.data, column.na)
-      frame.columns[ix] = DataArrays.DataArray(compress(column.data), column.na)
+      intern(column)
+      column = zero_missing_vals(column)
+      column = compress(column)
+      frame.columns[ix] = column
     end
     frames[table_name] = frame
   end
@@ -75,14 +75,18 @@ else
   # have to intern again - not preserved by jld :(
   @show @time for frame in values(frames)
     for column in frame.columns
-      intern(column.data)
+      intern(column)
     end
   end
 end
 
-function without_nulls(keys, vals, na)
-  ([keys[ix] for ix in 1:length(keys) if !na[ix]],
-   [vals[ix] for ix in 1:length(vals) if !na[ix]])
+function drop_missing_vals{T}(keys, vals::Vector{Union{T, Missing}})
+  ([keys[ix] for ix in 1:length(keys) if !ismissing(vals[ix])],
+   T[vals[ix] for ix in 1:length(vals) if !ismissing(vals[ix])])
+end
+
+function drop_missing_vals{T}(keys, vals)
+  (keys, vals)
 end
 
 @show @time for (table_name, column_names) in table_column_names
@@ -90,7 +94,7 @@ end
   frame = frames[table_name]
   typs = [Symbol("T$i") for i in 2:length(column_names)]
   fields = [Symbol(column_name) for column_name in column_names if column_name != "id"]
-  relations = [:(Relation(without_nulls($(frame.columns[1].data), $(frame.columns[ix].data), $(frame.columns[ix].na)), 1)) for ix in 2:length(column_names)]
+  relations = [:(Relation($(drop_missing_vals(frame.columns[1], frame.columns[ix])), 1)) for ix in 2:length(column_names)]
   @eval begin
     type $(Symbol("Type_$(table_name)")){$(typs...)}
       $([:($field::$typ) for (field, typ) in zip(fields, typs)]...)
