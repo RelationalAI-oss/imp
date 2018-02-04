@@ -85,7 +85,7 @@ function drop_missing_vals{T}(keys, vals::Vector{Union{T, Missing}})
    T[vals[ix] for ix in 1:length(vals) if !ismissing(vals[ix])])
 end
 
-function drop_missing_vals{T}(keys, vals)
+function drop_missing_vals(keys, vals)
   (keys, vals)
 end
 
