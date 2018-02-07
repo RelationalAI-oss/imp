@@ -92,9 +92,52 @@ end
 
 # TODO should be typed {K,V} instead of {T}, but pain in the ass to change now
 mutable struct Relation{T <: Tuple} # where T is a tuple of columns
-  columns::T
-  num_keys::Int
-  indexes::Dict{Vector{Int},T}
+  r_columns::T
+  r_num_keys::Int
+  r_indexes::Dict{Vector{Int},T}
+end
+
+
+function Relation(columns)
+  create_relation(columns, length(columns)-1)
+end
+
+function create_relation{T <: Tuple}(columns::T, num_keys::Int)
+  order = collect(1:length(columns))
+  if is_unique_and_sorted(columns)
+    Relation{T}(columns, num_keys, Dict{Vector{Int}, typeof(columns)}(order => columns))
+  else
+    quicksort!(columns)
+    deduped::typeof(columns) = map((column) -> empty(column), columns)
+    key = columns[1:num_keys]
+    val = columns[num_keys+1:1]
+    dedup_sorted!(columns, key, val, deduped)
+    Relation{T}(deduped, num_keys, Dict{Vector{Int}, typeof(deduped)}(order => deduped))
+  end
+end
+
+function create_relation{T <: Tuple}(columns::T)
+  create_relation{T}(columns, length(columns)-1)
+end
+
+function get_rel_index!{T <: Tuple}(f::Function, rel::Relation{T}, key)
+  get!(f, rel.r_indexes, key)
+end
+
+function get_rel_columns{T <: Tuple}(rel::Relation{T})
+  rel.r_columns
+end
+
+function get_rel_column{T <: Tuple}(rel::Relation{T}, idx::Int)
+  rel.r_columns[idx]
+end
+
+function get_rel_num_keys{T <: Tuple}(rel::Relation{T})
+  rel.r_num_keys
+end
+
+function get_rel_index{T <: Tuple}(rel::Relation{T}, key)
+  rel.r_indexes[key]
 end
 
 function is_sorted{T}(columns::T)
@@ -116,8 +159,8 @@ function is_unique_and_sorted{T}(columns::T)
 end
 
 function index{T}(relation::Relation{T}, order::Vector{Int})
-  get!(relation.indexes, order) do
-    columns = tuple(((ix in order) ? copy(column) : empty(column) for (ix, column) in enumerate(relation.columns))...)
+  get_rel_index!(relation, order) do
+    columns = tuple(((ix in order) ? copy(column) : empty(column) for (ix, column) in enumerate(get_rel_columns(relation)))...)
     sortable_columns = tuple((columns[ix] for ix in order)...)
     if !is_sorted(sortable_columns)
       quicksort!(sortable_columns)
@@ -135,24 +178,6 @@ function dedup_sorted!{T}(columns::T, key, val, deduped::T)
       @assert cmp_in(val, val, at, at-1) == 0 # no key collisions allowed
     end
   end
-end
-
-function Relation(columns, num_keys::Int)
-  order = collect(1:length(columns))
-  if is_unique_and_sorted(columns)
-    Relation(columns, num_keys, Dict{Vector{Int}, typeof(columns)}(order => columns))
-  else
-    quicksort!(columns)
-    deduped::typeof(columns) = map((column) -> empty(column), columns)
-    key = columns[1:num_keys]
-    val = columns[num_keys+1:1]
-    dedup_sorted!(columns, key, val, deduped)
-    Relation(deduped, num_keys, Dict{Vector{Int}, typeof(deduped)}(order => deduped))
-  end
-end
-
-function Relation(columns)
-  Relation(columns, length(columns)-1)
 end
 
 function parse_relation(expr)
@@ -193,7 +218,7 @@ macro relation(expr)
   order = collect(1:length(typs))
   body = quote 
     columns = tuple($([:(column_type($(esc(typ)))()) for typ in typs]...))
-    Relation(columns, $(length(keys)))
+    create_relation(columns, $(length(keys)))
   end
   if name != ()
     :(const $(esc(name)) = $body)
@@ -234,13 +259,13 @@ function foreach_diff{T <: Tuple, K <: Tuple}(old::T, new::T, old_key::K, new_ke
 end
 
 function diff{T}(old::Relation{T}, new::Relation{T})
-  @assert old.num_keys == new.num_keys 
-  order = collect(1:length(old.columns))
+  @assert get_rel_num_keys(old) == get_rel_num_keys(new)
+  order = collect(1:length(get_rel_columns(old)))
   old_index = index(old, order)
   new_index = index(new, order)
-  old_only_columns = tuple([empty(column) for column in old.columns]...)
-  new_only_columns = tuple([empty(column) for column in new.columns]...)
-  foreach_diff(old_index, new_index, old_index, new_index, 
+  old_only_columns = tuple([empty(column) for column in get_rel_columns(old)]...)
+  new_only_columns = tuple([empty(column) for column in get_rel_columns(new)]...)
+  foreach_diff(old_index, new_index, old_index, new_index,
     (o, i) -> push_in!(old_only_columns, o, i),
     (n, i) -> push_in!(new_only_columns, n, i),
     (o, n, oi, ni) -> ())
@@ -248,13 +273,13 @@ function diff{T}(old::Relation{T}, new::Relation{T})
 end
 
 function diff_ixes{T}(old::Relation{T}, new::Relation{T})::Tuple{Vector{Int64}, Vector{Int64}}
-  @assert old.num_keys == new.num_keys 
-  order = collect(1:length(old.columns))
+  @assert get_rel_num_keys(old) == get_rel_num_keys(new)
+  order = collect(1:length(get_rel_columns(old)))
   old_index = index(old, order)
   new_index = index(new, order)
   old_only_ixes = Vector{Int64}()
   new_only_ixes = Vector{Int64}()
-  foreach_diff(old_index, new_index, old_index, new_index, 
+  foreach_diff(old_index, new_index, old_index, new_index,
     (o, i) -> push!(old_only_ixes, i),
     (n, i) -> push!(new_only_ixes, i),
     (o, n, oi, ni) -> ())
@@ -262,30 +287,31 @@ function diff_ixes{T}(old::Relation{T}, new::Relation{T})::Tuple{Vector{Int64}, 
 end
 
 function Base.merge{T}(old::Relation{T}, new::Relation{T})
-  if old.num_keys != new.num_keys 
-    error("Mismatch in num_keys - $(old.num_keys) vs $(new.num_keys) in merge($old, $new)")
+  if get_rel_num_keys(old) != get_rel_num_keys(new)
+    error("Mismatch in num_keys - $(get_rel_num_keys(old)) vs $(get_rel_num_keys(new)) in merge($old, $new)")
   end
-  if length(old.columns[1]) == 0
+  if length(get_rel_column(old, 1)) == 0
     return new
   end
-  if length(new.columns[1]) == 0
+  if length(get_rel_column(new, 1)) == 0
     return old
   end
-  order = collect(1:length(old.columns))
-  old_index = old.indexes[order]
-  new_index = new.indexes[order]
-  result_columns::T = tuple((empty(column) for column in old.columns)...)
-  foreach_diff(old_index, new_index, old_index[1:old.num_keys], new_index[1:new.num_keys], 
+  order = collect(1:length(get_rel_columns(old)))
+  old_index = old.get_rel_index(order)
+  new_index = new.get_rel_index(order)
+  result_columns::T = tuple((empty(column) for column in get_rel_columns(old))...)
+  foreach_diff(old_index, new_index, old_index[1:get_rel_num_keys(old)], new_index[1:get_rel_num_keys(new)],
     (o, i) -> push_in!(result_columns, o, i),
     (n, i) -> push_in!(result_columns, n, i),
     (o, n, oi, ni) -> push_in!(result_columns, n, ni))
   result_indexes = Dict{Vector{Int}, Tuple}(order => result_columns)
-  Relation{T}(result_columns, old.num_keys, result_indexes)
+  create_relation{T}(result_columns, get_rel_num_keys(old), result_indexes)
 end
 
 function replace!{T}(old::Relation{T}, new::Relation{T})
-  old.columns = new.columns
-  old.indexes = copy(new.indexes) # shallow copy of Dict
+  old.r_columns = get_rel_columns(new)
+  old.r_num_keys = get_rel_num_keys(new)
+  old.r_indexes = copy(get_rel_index(new)) # shallow copy of Dict
   old
 end
 
@@ -294,29 +320,29 @@ function Base.merge!{T}(old::Relation{T}, new::Relation{T})
 end
 
 function Base.push!{T}(relation::Relation{T}, values)
-  merge!(relation, Relation(map((i) -> eltype(relation.columns[i])[values[i]], tuple(1:length(values)...)), relation.num_keys))
+  merge!(relation, create_relation(map((i) -> eltype(get_rel_column(relation, i))[values[i]], tuple(1:length(values)...)), get_rel_num_keys(relation)))
 end
 
 @inline function Base.length(relation::Relation)
-  length(relation.columns)
+  length(get_rel_columns(relation))
 end
 
 @inline function Base.getindex(relation::Relation, ix)
-  relation.columns[ix]
+  get_rel_columns(relation, ix)
 end
 
 function empty(coll)
   typeof(coll)()
 end
 
-function empty(relation::Relation) 
-  Relation(map((c) -> empty(c), relation.columns), relation.num_keys, empty(relation.indexes))
+function empty(relation::Relation)
+  create_relation(map((c) -> empty(c), get_rel_columns(relation)), get_rel_num_keys(relation), empty(get_rel_index(relation)))
 end
 
 function Base.copy(relation::Relation)
-  Relation(relation.columns, relation.num_keys, copy(relation.indexes))
+  create_relation(get_rel_columns(relation), get_rel_num_keys(relation), copy(get_rel_index(relation)))
 end
 
-export Relation, @relation, index, parse_relation, empty, diff
+export Relation, create_relation, get_rel_index, get_rel_column, get_rel_columns, get_rel_num_keys, @relation, index, parse_relation, empty, diff
 
 end

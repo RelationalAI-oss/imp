@@ -8,13 +8,13 @@ using Imp.Compiler
 @testset "Compiler" begin
 
   zz(x, y) = (x * x) + (y * y) + (3 * x * y)
-  const xx = Relation((collect(0:100),collect(0:100)))
-  const yy = Relation((collect(0:100), collect(reverse(0:100))))
+  const xx = create_relation((collect(0:100),collect(0:100)))
+  const yy = create_relation((collect(0:100), collect(reverse(0:100))))
   inputs = Dict(:xx => xx, :yy => yy, :zz => zz)
-  
-  expected = sum(((x * x) + (y * y) + (3 * x * y) for (x,y) in zip(xx.columns[2], yy.columns[2])))
-  
-  @testset "poly1" begin 
+
+  expected = sum(((x * x) + (y * y) + (3 * x * y) for (x,y) in zip(get_rel_column(xx, 2), get_rel_column(yy, 2))))
+
+  @testset "poly1" begin
 
     polynomial_ast1 = Lambda(
       :poly1,
@@ -142,8 +142,8 @@ using Imp.Compiler
     for x in 0:100
       y = 100-x
       z = (x * x) + (y * y) + (3 * x * y)
-      @test j5.columns[1][x+1] == x
-      @test j5.columns[2][x+1] == z
+      @test get_rel_column(j5, 1)[x+1] == x
+      @test get_rel_column(j5, 2)[x+1] == z
     end
     
   end
@@ -170,15 +170,15 @@ using Imp.Compiler
     p6 = compile_relation(polynomial_ast6)
     @inferred p6(inputs)
     j6 = p6(inputs)
-    @test j6.columns[1][1] == expected
-    
+    @test get_rel_column(j6, 1)[1] == expected
+
   end
 
 end
 
 # using BenchmarkTools
-# const big_xx = Relation((collect(0:1000000),collect(0:1000000)))
-# const big_yy = Relation((collect(0:1000000), collect(reverse(0:1000000))))
+# const big_xx = create_relation((collect(0:1000000),collect(0:1000000)))
+# const big_yy = create_relation((collect(0:1000000), collect(reverse(0:1000000))))
 # big_inputs = Dict(:xx => big_xx, :yy => big_yy)
 # 
 # polynomial_ast5 = Lambda(

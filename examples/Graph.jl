@@ -7,8 +7,8 @@ using BenchmarkTools
 using Base.Test
 
 srand(999)
-const edge1 = Relation(([1, 2, 3, 3, 4], [2, 3, 1, 4, 2]), 2)
-const edge2 = Relation((rand(1:Int64(1E5), Int64(1E6)), rand(1:Int64(1E5), Int64(1E6))), 2)
+const edge1 = create_relation(([1, 2, 3, 3, 4], [2, 3, 1, 4, 2]), 2)
+const edge2 = create_relation((rand(1:Int64(1E5), Int64(1E6)), rand(1:Int64(1E5), Int64(1E6))), 2)
 const edge = edge1
 
 function f(edge) 

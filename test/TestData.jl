@@ -22,10 +22,10 @@ using Imp.Data
       x = unique(rand(1:i, i))
       y = rand(1:i, length(x))
       z = rand(1:i, length(x))
-      a = Relation((x,y), 1)
-      b = Relation((x,z), 1)
+      a = create_relation((x,y), 1)
+      b = create_relation((x,z), 1)
       c = merge(a,b)
-      @test c.columns == b.columns
+      @test get_rel_columns(c) == get_rel_columns(b)
     end
   end
 
@@ -37,15 +37,15 @@ using Imp.Data
       x2 = [i*2+1 for i in x]
       y = rand(1:i, length(x))
       z = rand(1:i, length(x))
-      a = Relation((x1,y), 1)
-      b = Relation((x2,z), 1)
+      a = create_relation((x1,y), 1)
+      b = create_relation((x2,z), 1)
       c = merge(a,b)
-      @test length(c.columns[1]) == length(x1) + length(x2)
+      @test length(get_rel_column(c, 1)) == length(x1) + length(x2)
     end
   end
 
-  @inferred Relation(([1,2,3],["a","b","c"]), 1)
-  
+  @inferred create_relation(([1,2,3],["a","b","c"]), 1)
+
 end
 
 function bench()
@@ -61,8 +61,8 @@ function bench()
   x = unique(rand(1:10000, 10000))
   y = rand(1:10000, length(x))
   z = rand(1:10000, length(x))
-  a = Relation((x,y), 1)
-  b = Relation((x,z), 1)
+  a = create_relation((x,y), 1)
+  b = create_relation((x,z), 1)
   # @show @benchmark merge($a,$b)
 end
 

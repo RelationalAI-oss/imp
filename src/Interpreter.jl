@@ -215,19 +215,19 @@ end
 # --- compiler ---
 
 function relation_to_set(relation::Relation) ::Set
-  columns = relation.columns[1:end-1] # drop the useless `true` column
+  columns = get_rel_columns(relation)[1:end-1] # drop the useless `true` column
   typ = Tuple{(eltype(column) for column in columns)...}
   Set{typ}((ntuple((col) -> columns[col][row], length(columns)) for row in 1:length(columns[1])))
 end
 
-function set_to_relation(set::Set{T}) ::Relation where {T <: Tuple} 
+function set_to_relation(set::Set{T}) ::Relation where {T <: Tuple}
   columns = ntuple((col) -> Vector{T.parameters[col]}(), length(T.parameters))
   for row in set
     for col in 1:length(T.parameters)
       push!(columns[col], row[col])
     end
   end
-  Relation(columns, length(T.parameters))
+  create_relation(columns, length(T.parameters))
 end
 
 compile(expr::Expr) = map_exprs(compile, expr)

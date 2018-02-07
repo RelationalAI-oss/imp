@@ -54,8 +54,8 @@ end
 
 function parse_in(var, set, init, mod::Module) ::FunCall
   sym = gensym("fun")
-  init[sym] = :(Relation((collect($set),), 1))
-  # `x in xs` is only ever used with string columns 
+  init[sym] = :(create_relation((collect($set),), 1))
+  # `x in xs` is only ever used with string columns
   FunCall(sym, Relation{Tuple{Vector{String}}}, [var])
 end
 

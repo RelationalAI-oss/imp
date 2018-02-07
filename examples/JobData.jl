@@ -66,13 +66,13 @@ else
 end
 
 @showtime for (table_name, column_names) in table_column_names
-  relations = [Relation(data[(table_name, column_name)], 1) for column_name in column_names[2:end]]
+  relations = [create_relation(data[(table_name, column_name)], 1) for column_name in column_names[2:end]]
   fields = [Symbol(replace(column_name, "_id", "")) for column_name in column_names[2:end]]
   typs = [Symbol("T$i") for i in 2:length(column_names)]
   @eval begin
     type $(Symbol("Type_$(table_name)")){$(typs...)}
       $([:($field::$typ) for (field, typ) in zip(fields, typs)]...)
-    end 
+    end
     const $(Symbol(table_name)) = $(Symbol("Type_$(table_name)"))($(relations...))
     export $(Symbol(table_name))
   end
