@@ -187,7 +187,7 @@ function RelationIndex(columns::T) where {T}
   RelationIndex(columns, los, his)
 end
 
-function gallop{T}(column::AbstractArray{T}, lo::Int64, hi::Int64, value::T, threshold::Int64) ::Int64
+function gallop(column::AbstractArray, lo::Int64, hi::Int64, value, threshold::Int64) ::Int64
   if (lo < hi) && cmp(column[lo], value) < threshold
     step = 1
     while (lo + step < hi) && cmp(column[lo + step], value) < threshold
@@ -206,10 +206,6 @@ function gallop{T}(column::AbstractArray{T}, lo::Int64, hi::Int64, value::T, thr
     lo += 1
   end
   lo
-end
-
-function gallop{T1, T2}(column::AbstractArray{T1}, lo::Int64, hi::Int64, value::T2, threshold::Int64) ::Int64
-  gallop(column, lo, hi, convert(T1, value), threshold)
 end
 
 function next(index::RelationIndex, ::Type{Val{C}}) where {C}

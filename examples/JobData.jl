@@ -6,35 +6,28 @@ using DataFrames
 using Missings
 using JLD
 
+using Imp.Util
 using Imp.Data
 
-function intern{T}(column::Vector{T})
-  if !isbits(T)
-    interned = Dict{T, T}()
-    for i in 1:length(column)
-      column[i] = get!(interned, column[i], column[i])
-    end
-  end
+function drop_missing_vals(keys::Vector{Union{K, Missing}}, vals::Vector{Union{V, Missing}}) ::Tuple{Vector{K}, Vector{V}} where {K, V}
+  @assert length(keys) == length(vals)
+  (
+    K[k for (k, v) in zip(keys, vals) if !ismissing(v)],
+    V[v for (k, v) in zip(keys, vals) if !ismissing(v)],
+  )
 end
 
-function zero_missing_vals{T}(column::Vector{Union{T, Missings.Missing}}) 
-  if T <: Integer
-    return T[ismissing(elem) ? 0 : elem for elem in column]
-  else
-    return column
-  end
-end
-
-function compress{T}(column::Vector{T}) 
-  if T <: Integer
+function compress(column::Vector{T}) where {T}
+  if (T <: Integer) && !isempty(column)
     minval, maxval = minimum(column), maximum(column)
     for T2 in [Int8, Int16, Int32, Int64]
       if (minval > typemin(T2)) && (maxval < typemax(T2))
         return convert(Vector{T2}, column)
       end
     end
+  else
+    return column
   end
-  return column
 end
 
 schema = readdlm(open("data/job_schema.csv"), ',', header=false, quotes=true, comments=false)
@@ -54,47 +47,28 @@ if !isfile("./data/imdb.jld")
     println("Warning: source data in ../imdb not found.")
     error("Cannot load imdb data for JOB")
   end
-  frames = Dict()
-  @show @time for (table_name, column_names) in table_column_names
+  data = Dict()
+  @showtime for (table_name, column_names) in table_column_names
     column_types = table_column_types[table_name]
     @show table_name column_names column_types
     frame = readtable(open("../imdb/$(table_name).csv"), header=false, eltypes=column_types)
-    for ix in 1:length(frame.columns)
-      column = frame.columns[ix]
-      intern(column)
-      column = zero_missing_vals(column)
-      column = compress(column)
-      frame.columns[ix] = column
+    for i in 2:length(frame.columns)
+      (keys, vals) = drop_missing_vals(frame.columns[1], frame.columns[i])
+      keys = compress(keys)
+      vals = compress(vals)
+      data[(table_name, column_names[i])] = (keys, vals)
     end
-    frames[table_name] = frame
   end
-  @show @time save("./data/imdb.jld", "frames", frames)
+  @showtime save("./data/imdb.jld", "data", data)
 else 
   println("Loading imdb data from data/imdb.jld. This will take several minutes.")
-  frames = @show @time load("./data/imdb.jld", "frames")
-  # have to intern again - not preserved by jld :(
-  @show @time for frame in values(frames)
-    for column in frame.columns
-      intern(column)
-    end
-  end
+  data = @showtime load("./data/imdb.jld", "data")
 end
 
-function drop_missing_vals{T}(keys, vals::Vector{Union{T, Missing}})
-  ([keys[ix] for ix in 1:length(keys) if !ismissing(vals[ix])],
-   T[vals[ix] for ix in 1:length(vals) if !ismissing(vals[ix])])
-end
-
-function drop_missing_vals(keys, vals)
-  (keys, vals)
-end
-
-@show @time for (table_name, column_names) in table_column_names
-  column_names = [replace(column_name, "_id", "") for column_name in column_names]
-  frame = frames[table_name]
+@showtime for (table_name, column_names) in table_column_names
+  relations = [Relation(data[(table_name, column_name)], 1) for column_name in column_names[2:end]]
+  fields = [Symbol(replace(column_name, "_id", "")) for column_name in column_names[2:end]]
   typs = [Symbol("T$i") for i in 2:length(column_names)]
-  fields = [Symbol(column_name) for column_name in column_names if column_name != "id"]
-  relations = [:(Relation($(drop_missing_vals(frame.columns[1], frame.columns[ix])), 1)) for ix in 2:length(column_names)]
   @eval begin
     type $(Symbol("Type_$(table_name)")){$(typs...)}
       $([:($field::$typ) for (field, typ) in zip(fields, typs)]...)
@@ -104,8 +78,8 @@ end
   end
 end
 
-frames = nothing
-
+# get rid off source data
+data = nothing
 gc()
 
 end

@@ -7,6 +7,7 @@ using Examples.LegacyParser
 using Base.Test
 using BenchmarkTools
 import DataFrames
+using Missings
 
 macro query_not(clause)
   quote 
@@ -2816,7 +2817,7 @@ function q33b()
     movie_link.link_type(ml, lt)
     movie_link.linked_movie(ml, t2)
     title.kind(t2, kt)
-    title.production_year(t2, Int16(2007))
+    title.production_year(t2, 2007)
     title.title(t2, title2)
     movie_info_idx.movie(mii2, t2)
     movie_info_idx.info_type(mii2, it)
@@ -2883,6 +2884,8 @@ function query_names(nums=1:33)
   query_names
 end
 
+no_missing_vals(column::Vector{Union{T, Missing}}) where {T} = convert(Vector{T}, column)
+
 function test(qs = query_names())
   @testset "queries" begin
     @testset "query $query_name" for query_name in qs
@@ -2900,7 +2903,7 @@ function test(qs = query_names())
       if length(frame.columns) == 0
         @test length(results_imp[1]) == 0
       else
-        results_pg = Relation(tuple((frame[ix].data for ix in 1:num_columns)...), num_columns)
+        results_pg = Relation(tuple((no_missing_vals(frame[ix]) for ix in 1:num_columns)...), num_columns)
         (imp_only, pg_only) = Data.diff(results_imp, results_pg)
         imp_only = map((c) -> c[1:min(10, length(c))], imp_only)
         pg_only = map((c) -> c[1:min(10, length(c))], pg_only)
