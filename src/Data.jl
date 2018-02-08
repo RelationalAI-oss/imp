@@ -127,23 +127,23 @@ function replace!{T <: Tuple}(old::MemoryRelation{T}, new::MemoryRelation{T})
 end
 
 mutable struct CloudRelation{T <: Tuple} <: Relation{T}
-  r_name::String
-  r_id::UInt64
-  r_is_loaded::Bool
-  r_is_dirty::Bool
-  r_is_persistent::Bool
-  r_memory_data::MemoryRelation{T}
+  r_name::String # the relation name, which is mostly used for easier debugging and a reference point for finding the relation ID
+  r_id::UInt64 # relation ID is the main key used to lookup a relation from the cloud
+  r_is_loaded::Bool # a flag that determines whether the relation is already loaded or nor
+  r_is_dirty::Bool # a flag that shows whether the relation contains data that is not still stored on the cloud if it's a persistent relation
+  r_is_persistent::Bool # a flag that determines whether the relation should be persistet on the cloud
+  r_memory_data::MemoryRelation{T} # when the data is loaded from the cloud, it is stored in this MemoryRelation
 end
 
-function load_rel!{T <: Tuple}(rel::CloudRelation{T})
-  if !rel.r_is_loaded
+function load_rel!{T <: Tuple}(rel::CloudRelation{T}, force::Bool=false)
+  if force || !rel.r_is_loaded
     #TODO actually load the relation via PagerWrap
     rel.r_is_loaded = true
   end
 end
 
-function store_rel!{T <: Tuple}(rel::CloudRelation{T})
-  if rel.r_is_dirty && rel.r_is_persistent
+function store_rel!{T <: Tuple}(rel::CloudRelation{T}, force::Bool=false)
+  if force || (rel.r_is_dirty && rel.r_is_persistent)
     #TODO actually store the relation via PagerWrap
     rel.r_is_dirty = false
   end
@@ -176,11 +176,8 @@ end
 function create_relation(columns::T, num_keys::Int=length(columns)-1, is_paged::Bool=false, is_persistent::Bool=false, rel_name::String="", rel_id::UInt64=typemin(UInt64)) where {T <: Tuple}
   if is_paged
     rel = CloudRelation(rel_name, rel_id, true, is_persistent, is_persistent, create_relation(columns, num_keys, false, is_persistent, rel_name, rel_id))
-    if is_persistent
-      @assert !isempty(rel_name)
-      @assert rel_id > typemin(UInt64)
-      store_rel(rel)
-    end
+    @assert !is_persistent || (!isempty(rel_name) && rel_id > typemin(UInt64))
+    store_rel(rel)
     rel
   else
     order = collect(1:length(columns))
