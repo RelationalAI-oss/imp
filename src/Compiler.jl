@@ -238,11 +238,11 @@ function seek(index::RelationIndex, ::Type{Val{C}}, value) where {C}
   end
 end
 
-function can_index(::Type{Relation{T}}) where {T}
+function can_index(::Type{RT}) where RT <: Relation{T} where {T}
   true
 end
 
-function get_index(::Type{Relation{T}}, fun::Symbol, permutation::Vector{Int64}) where {T}
+function get_index(::Type{RT}, fun::Symbol, permutation::Vector{Int64}) where RT <: Relation{T} where {T}
   quote
     columns = Data.index($(esc(fun)), $permutation)
     permuted = ($(@splice ix in permutation :(columns[$ix])),)
@@ -251,7 +251,7 @@ function get_index(::Type{Relation{T}}, fun::Symbol, permutation::Vector{Int64})
 end
 
 # technically wrong, but good enough for now
-function count(::Type{Relation{T}}, index::Symbol, args::Vector{Symbol}, var::Symbol) where {T}
+function count(::Type{RT}, index::Symbol, args::Vector{Symbol}, var::Symbol) where RT <: Relation{T} where {T}
   @assert var == args[end]
   first_column = findfirst(args, args[end]) # first repetition of last var
   quote
@@ -259,7 +259,7 @@ function count(::Type{Relation{T}}, index::Symbol, args::Vector{Symbol}, var::Sy
   end
 end
 
-function iter(::Type{Relation{T}}, index::Symbol, args::Vector{Symbol}, var::Symbol, f) where {T}
+function iter(::Type{RT}, index::Symbol, args::Vector{Symbol}, var::Symbol, f) where RT <: Relation{T} where {T}
   @assert var == args[end]
   first_column = findfirst(args, args[end]) # first repetition of last var
   last_column = length(args)
@@ -278,14 +278,14 @@ function iter(::Type{Relation{T}}, index::Symbol, args::Vector{Symbol}, var::Sym
   end
 end
 
-function prepare(::Type{Relation{T}}, index::Symbol, args::Vector{Symbol}) where {T}
+function prepare(::Type{RT}, index::Symbol, args::Vector{Symbol}) where RT <: Relation{T} where {T}
   first_column = findfirst(args, args[end]) # first repetition of last var
   quote
     $(esc(index)).his[$first_column+1] = $(esc(index)).los[$first_column]
   end
 end
 
-function contains(::Type{Relation{T}}, index::Symbol, args::Vector{Symbol}) where {T}
+function contains(::Type{RT}, index::Symbol, args::Vector{Symbol}) where RT <: Relation{T} where {T}
   first_column = findfirst(args, args[end]) # first repetition of last var
   last_column = length(args)
   var = args[end]
@@ -300,7 +300,7 @@ function contains(::Type{Relation{T}}, index::Symbol, args::Vector{Symbol}) wher
   end
 end
 
-function narrow_types(::Type{Relation{T}}, fun_name, arg_types::Vector{Type}) where T
+function narrow_types(::Type{RT}, fun_name, arg_types::Vector{Type}) where RT <: Relation{T} where {T}
   # just return the types of the columns
   return Type[eltype(T.parameters[i]) for i in 1:length(arg_types)]
 end

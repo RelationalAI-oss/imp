@@ -91,44 +91,110 @@ function quicksort!{T <: Tuple}(cs::T)
 end
 
 # TODO should be typed {K,V} instead of {T}, but pain in the ass to change now
-mutable struct Relation{T <: Tuple} # where T is a tuple of columns
+abstract type Relation{T <: Tuple} end # where T is a tuple of columns
+
+mutable struct MemoryRelation{T <: Tuple} <: Relation{T}
   r_columns::T
   r_num_keys::Int
   r_indexes::Dict{Vector{Int},T}
 end
 
-function create_relation(columns::T, num_keys::Int=length(columns)-1, is_paged::Bool=false, rel_name::String="", is_persistent::Bool=false) where {T <: Tuple}
-  order = collect(1:length(columns))
-  if is_unique_and_sorted(columns)
-    Relation{T}(columns, num_keys, Dict{Vector{Int}, typeof(columns)}(order => columns))
-  else
-    quicksort!(columns)
-    deduped::typeof(columns) = map((column) -> empty(column), columns)
-    key = columns[1:num_keys]
-    val = columns[num_keys+1:1]
-    dedup_sorted!(columns, key, val, deduped)
-    Relation{T}(deduped, num_keys, Dict{Vector{Int}, typeof(deduped)}(order => deduped))
-  end
-end
-
-function get_rel_index!{T <: Tuple}(f::Function, rel::Relation{T}, key)
+@inline function get_rel_index!{T <: Tuple}(f::Function, rel::MemoryRelation{T}, key)
   get!(f, rel.r_indexes, key)
 end
 
-function get_rel_columns{T <: Tuple}(rel::Relation{T})
+@inline function get_rel_columns{T <: Tuple}(rel::MemoryRelation{T})
   rel.r_columns
 end
 
-function get_rel_column{T <: Tuple}(rel::Relation{T}, idx::Int)
+@inline function get_rel_column{T <: Tuple}(rel::MemoryRelation{T}, idx::Int)
   rel.r_columns[idx]
 end
 
-function get_rel_num_keys{T <: Tuple}(rel::Relation{T})
+@inline function get_rel_num_keys{T <: Tuple}(rel::MemoryRelation{T})
   rel.r_num_keys
 end
 
-function get_rel_index{T <: Tuple}(rel::Relation{T}, key)
+@inline function get_rel_index{T <: Tuple}(rel::MemoryRelation{T}, key)
   rel.r_indexes[key]
+end
+
+function replace!{T <: Tuple}(old::MemoryRelation{T}, new::MemoryRelation{T})
+  old.r_columns = get_rel_columns(new)
+  old.r_num_keys = get_rel_num_keys(new)
+  old.r_indexes = copy(get_rel_index(new)) # shallow copy of Dict
+  old
+end
+
+mutable struct CloudRelation{T <: Tuple} <: Relation{T}
+  r_name::String
+  r_id::UInt64
+  r_is_loaded::Bool
+  r_is_dirty::Bool
+  r_is_persistent::Bool
+  r_memory_data::MemoryRelation{T}
+end
+
+function load_rel!{T <: Tuple}(rel::CloudRelation{T})
+  if !rel.r_is_loaded
+    #TODO actually load the relation via PagerWrap
+    rel.r_is_loaded = true
+  end
+end
+
+function store_rel!{T <: Tuple}(rel::CloudRelation{T})
+  if rel.r_is_dirty && rel.r_is_persistent
+    #TODO actually store the relation via PagerWrap
+    rel.r_is_dirty = false
+  end
+end
+
+@inline function get_rel_index!{T <: Tuple}(f::Function, rel::CloudRelation{T}, key)
+  get_rel_index!(f, rel.r_memory_data, key)
+end
+
+@inline function get_rel_columns{T <: Tuple}(rel::CloudRelation{T})
+  get_rel_columns(rel.r_memory_data)
+end
+
+@inline function get_rel_column{T <: Tuple}(rel::CloudRelation{T}, idx::Int)
+  get_rel_column(rel.r_memory_data, idx)
+end
+
+@inline function get_rel_num_keys{T <: Tuple}(rel::CloudRelation{T})
+  get_rel_num_keys(rel.r_memory_data)
+end
+
+@inline function get_rel_index{T <: Tuple}(rel::CloudRelation{T}, key)
+  get_rel_index(rel.r_memory_data, key)
+end
+
+function replace!{T <: Tuple}(old::CloudRelation{T}, new::CloudRelation{T})
+  replace!(old.r_memory_data, new.r_memory_data)
+end
+
+function create_relation(columns::T, num_keys::Int=length(columns)-1, is_paged::Bool=false, is_persistent::Bool=false, rel_name::String="", rel_id::UInt64=typemin(UInt64)) where {T <: Tuple}
+  if is_paged
+    rel = CloudRelation(rel_name, rel_id, true, is_persistent, is_persistent, create_relation(columns, num_keys, false, is_persistent, rel_name, rel_id))
+    if is_persistent
+      @assert !isempty(rel_name)
+      @assert rel_id > typemin(UInt64)
+      store_rel(rel)
+    end
+    rel
+  else
+    order = collect(1:length(columns))
+    if is_unique_and_sorted(columns)
+      MemoryRelation{T}(columns, num_keys, Dict{Vector{Int}, typeof(columns)}(order => columns))
+    else
+      quicksort!(columns)
+      deduped::typeof(columns) = map((column) -> empty(column), columns)
+      key = columns[1:num_keys]
+      val = columns[num_keys+1:1]
+      dedup_sorted!(columns, key, val, deduped)
+      MemoryRelation{T}(deduped, num_keys, Dict{Vector{Int}, typeof(deduped)}(order => deduped))
+    end
+  end
 end
 
 function is_sorted{T}(columns::T)
@@ -297,13 +363,6 @@ function Base.merge{T}(old::Relation{T}, new::Relation{T})
     (o, n, oi, ni) -> push_in!(result_columns, n, ni))
   result_indexes = Dict{Vector{Int}, Tuple}(order => result_columns)
   create_relation{T}(result_columns, get_rel_num_keys(old), result_indexes)
-end
-
-function replace!{T}(old::Relation{T}, new::Relation{T})
-  old.r_columns = get_rel_columns(new)
-  old.r_num_keys = get_rel_num_keys(new)
-  old.r_indexes = copy(get_rel_index(new)) # shallow copy of Dict
-  old
 end
 
 function Base.merge!{T}(old::Relation{T}, new::Relation{T})
