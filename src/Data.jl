@@ -150,26 +150,32 @@ function store_rel!{T <: Tuple}(rel::CloudRelation{T}, force::Bool=false)
 end
 
 @inline function get_rel_index!{T <: Tuple}(f::Function, rel::CloudRelation{T}, key)
+  load_rel!(rel)
   get_rel_index!(f, rel.r_memory_data, key)
 end
 
 @inline function get_rel_columns{T <: Tuple}(rel::CloudRelation{T})
+  load_rel!(rel)
   get_rel_columns(rel.r_memory_data)
 end
 
 @inline function get_rel_column{T <: Tuple}(rel::CloudRelation{T}, idx::Int)
+  load_rel!(rel)
   get_rel_column(rel.r_memory_data, idx)
 end
 
 @inline function get_rel_num_keys{T <: Tuple}(rel::CloudRelation{T})
+  load_rel!(rel)
   get_rel_num_keys(rel.r_memory_data)
 end
 
 @inline function get_rel_index{T <: Tuple}(rel::CloudRelation{T}, key)
+  load_rel!(rel)
   get_rel_index(rel.r_memory_data, key)
 end
 
 function replace!{T <: Tuple}(old::CloudRelation{T}, new::CloudRelation{T})
+  load_rel!(new)
   replace!(old.r_memory_data, new.r_memory_data)
 end
 
