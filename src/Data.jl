@@ -323,7 +323,7 @@ end
 end
 
 @inline function Base.getindex(relation::Relation, ix)
-  get_rel_columns(relation, ix)
+  get_rel_column(relation, ix)
 end
 
 function empty(coll)
