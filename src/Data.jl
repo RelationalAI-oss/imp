@@ -97,7 +97,7 @@ mutable struct Relation{T <: Tuple} # where T is a tuple of columns
   r_indexes::Dict{Vector{Int},T}
 end
 
-function create_relation(columns::T, num_keys::Int) where {T <: Tuple}
+function create_relation(columns::T, num_keys::Int=length(columns)-1, is_paged::Bool=false, rel_name::String="", is_persistent::Bool=false) where {T <: Tuple}
   order = collect(1:length(columns))
   if is_unique_and_sorted(columns)
     Relation{T}(columns, num_keys, Dict{Vector{Int}, typeof(columns)}(order => columns))
@@ -109,10 +109,6 @@ function create_relation(columns::T, num_keys::Int) where {T <: Tuple}
     dedup_sorted!(columns, key, val, deduped)
     Relation{T}(deduped, num_keys, Dict{Vector{Int}, typeof(deduped)}(order => deduped))
   end
-end
-
-function create_relation(columns::T) where {T <: Tuple}
-  create_relation(columns, length(columns)-1)
 end
 
 function get_rel_index!{T <: Tuple}(f::Function, rel::Relation{T}, key)
