@@ -486,7 +486,7 @@ end
 macro fun(fun::Return)
   quote
     ($(esc(fun.value.name)))($(map(esc, fun.value.args)...),)
-    const $(esc(fun.name)) = Relation($(esc(fun.result_name)))
+    const $(esc(fun.name)) = create_relation($(esc(fun.result_name)))
     # TODO reduce result
   end
 end
