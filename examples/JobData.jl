@@ -23,16 +23,20 @@ function drop_missing_vals(keys::Vector{Union{K, Missing}}, vals::Vector{Union{V
 end
 
 function compress(column::Vector{T}) where {T}
-  if (T <: Integer) && !isempty(column)
-    minval, maxval = minimum(column), maximum(column)
-    for T2 in [Int8, Int16, Int32, Int64]
-      if (minval > typemin(T2)) && (maxval < typemax(T2))
-        return convert(Vector{T2}, column)
-      end
-    end
-  else
+  # DISABLED FOR NOW
+  # We cannot use this compress function, as we will not know the stored types
+  # when we start by an existing dataset that is already stored in the cloud
+  # in a previous run
+  # if (T <: Integer) && !isempty(column)
+  #   minval, maxval = minimum(column), maximum(column)
+  #   for T2 in [Int8, Int16, Int32, Int64]
+  #     if (minval > typemin(T2)) && (maxval < typemax(T2))
+  #       return convert(Vector{T2}, column)
+  #     end
+  #   end
+  # else
     return column
-  end
+  # end
 end
 
 function get_table_column_id(table_name, column_name)
@@ -41,12 +45,55 @@ function get_table_column_id(table_name, column_name)
   hash((table_name, column_name))
 end
 
-function serialize_table_column(keys, vals)
-  write_iob = IOBuffer()
-  serialize(write_iob, keys)
-  serialize(write_iob, vals)
-  seekstart(write_iob)
-  read(write_iob)
+function create_table_column_id_mappings(table_column_names)
+  table_column_ids = Dict{String, Vector{UInt64}}()
+  table_column_ids_set = Set{UInt64}()
+  for (table_name, column_names) in table_column_names
+    for i in 2:length(column_names)
+      column_name = column_names[i]
+      table_column_id = get_table_column_id(table_name, column_name)
+      #the vector is initialized with one zero element to align with the skipped ID column
+      push!(get!(table_column_ids, table_name, [ convert(UInt64, 0) ]), table_column_id)
+      @assert !in(table_column_id, table_column_ids_set) "There is another table-column with the same ID = $table_column_id"
+      push!(table_column_ids_set, table_column_id)
+    end
+  end
+  (table_column_ids, table_column_ids_set)
+end
+
+const USE_CLOUD_RELATIONS = true
+const DEFAULT_BUCKET = "relationalai"
+
+function upload_table_data_if_not_exists(pager_client, table_column_existence_map, table_column_ids, table_name, column_names, column_types)
+  table_data::Union{DataFrame, Void} = nothing
+  column_ids = table_column_ids[table_name]
+  for i in 2:length(column_names)
+    column_name = column_names[i]
+    table_column_id = column_ids[i]
+    table_column_exists = table_column_existence_map[table_column_id]
+    if(!table_column_exists)
+      debug(logger, "($table_name, $column_name) does not exist! Trying to put its data into the Pager...")
+      if(table_data == nothing)
+        # table data is loaded here, as it's not already loaded for another missing column
+        table_data = readtable(open("../imdb/$(table_name).csv"), header=false, eltypes=column_types)
+      end
+      
+      # read/clean/compress data for this table-column
+      (keys, vals) = drop_missing_vals(table_data.columns[1], table_data.columns[i])
+      keys = compress(keys)
+      vals = compress(vals)
+      
+      create_cloud_relation(Tuple{Vector{column_types[1]}, Vector{column_types[i]}}, DEFAULT_BUCKET, pager_client, 1, column_ids[i], true, "$table_name;$(column_names[i])", create_relation((keys, vals), 1))
+    end
+  end
+end
+
+function create_pager_client()
+  options = PagerWrap.PagerOptions(DEFAULT_BUCKET)
+  PagerWrap.InitPager(options)
+  cloud_options = PagerWrap.GetCloudStorageOptions(options)
+  cloud_storage_client = PagerWrap.CreateCloudStorageClient(cloud_options)
+  PagerWrap.PagerClient(options, cloud_storage_client)
 end
 
 schema = readdlm(open("data/job_schema.csv"), ',', header=false, quotes=true, comments=false)
@@ -60,9 +107,6 @@ for column in 1:size(schema)[1]
   end
 end
 
-const USE_CLOUD_RELATIONS = true
-const DEFAULT_BUCKET = "relationalai"
-
 if USE_CLOUD_RELATIONS
   if isempty(table_column_names)
     println("Warning: source data in ../imdb not found.")
@@ -70,24 +114,10 @@ if USE_CLOUD_RELATIONS
   end
   
   # create mapping between table-column names and their corresponding cloud relation IDs
-  table_column_ids = Dict()
-  table_column_ids_set = Set{UInt64}()
-  for (table_name, column_names) in table_column_names
-    for i in 2:length(column_names)
-      column_name = column_names[i]
-      table_column_id = get_table_column_id(table_name, column_name)
-      push!(get!(table_column_ids, table_name, []), table_column_id)
-      @assert !in(table_column_id, table_column_ids_set) "There is another table-column with the same ID = $table_column_id"
-      push!(table_column_ids_set, table_column_id)
-    end
-  end
+  (table_column_ids, table_column_ids_set) = create_table_column_id_mappings(table_column_names)
 
   # setup cloud pager
-  options = PagerWrap.PagerOptions(DEFAULT_BUCKET)
-  PagerWrap.InitPager(options)
-  cloud_options = PagerWrap.GetCloudStorageOptions(options)
-  cloud_storage_client = PagerWrap.CreateCloudStorageClient(cloud_options)
-  pager_client = PagerWrap.PagerClient(options, cloud_storage_client);
+  pager_client = create_pager_client();
   
   # check the existence of the table-columns
   table_column_existence_results = Vector{Bool}()
@@ -103,53 +133,21 @@ if USE_CLOUD_RELATIONS
     
     # table data will be loaded from local CSV files if necessary
     # this step was not necessary if we could make sure that relations are loaded apriori
-    table_data::Union{DataFrame, Void} = nothing
-    for i in 2:length(column_names)
-      column_name = column_names[i]
-      table_column_id = get_table_column_id(table_name, column_name)
-      table_column_exists = table_column_existence_map[table_column_id]
-      if(!table_column_exists)
-        debug(logger, "($table_name, $column_name) does not exist! Trying to put its data into the Pager...")
-        if(table_data == nothing)
-          # table data is loaded here, as it's not already loaded for another missing column
-          table_data = readtable(open("../imdb/$(table_name).csv"), header=false, eltypes=column_types)
-        end
-        
-        # read/clean/compress data for this table-column
-        (keys, vals) = drop_missing_vals(table_data.columns[1], table_data.columns[i])
-        keys = compress(keys)
-        vals = compress(vals)
-        
-        # serialize keys and values
-        keys_vals_content = serialize_table_column(keys, vals);
-        
-        # create and upload the page
-        table_column_page = PagerWrap.create_page(table_column_id, keys_vals_content, convert(UInt64, length(keys_vals_content)))
-        put_table_column_page_res = PagerWrap.put_page(pager_client, table_column_page, "put_table_column_page", DEFAULT_BUCKET)
-        
-        # check the success and handle the error is necessary
-        if !PagerWrap.IsSuccess(put_table_column_page_res)
-          err = PagerWrap.GetResultError(put_table_column_page_res)
-          error("Failed to upload the (table, column) = ($table_name, $column_name) to the Pager with error: $(PagerWrap.GetRawMessage(err))")
-        end
-        
-        # create the corresponding cloud relation for this table-column
-        relations = [create_relation(data[(table_name, column_name)], 1, true, true, "$table_name;$column_name", table_column_id) for column_name in column_names[2:end]]
-        fields = [Symbol(replace(column_name, "_id", "")) for column_name in column_names[2:end]]
-        typs = [Symbol("T$i") for i in 2:length(column_names)]
-        @eval begin
-          type $(Symbol("Type_$(table_name)")){$(typs...)}
-            $([:($field::$typ) for (field, typ) in zip(fields, typs)]...)
-          end
-          const $(Symbol(table_name)) = $(Symbol("Type_$(table_name)"))($(relations...))
-          export $(Symbol(table_name))
-        end
-      end
-    end
+    upload_table_data_if_not_exists(pager_client, table_column_existence_map, table_column_ids, table_name, column_names, column_types)
     
+    # create the corresponding cloud relation for this table-column
+    column_ids = table_column_ids[table_name]
+    relations = [create_cloud_relation(Tuple{Vector{column_types[1]}, Vector{column_types[column_idx]}}, DEFAULT_BUCKET, pager_client, 1, column_ids[column_idx], true, "$table_name;$(column_names[column_idx])") for column_idx in 2:length(column_names)]
+    fields = [Symbol(replace(column_name, "_id", "")) for column_name in column_names[2:end]]
+    typs = [Symbol("T$i") for i in 2:length(column_names)]
+    @eval begin
+      type $(Symbol("Type_$(table_name)")){$(typs...)}
+        $([:($field::$typ) for (field, typ) in zip(fields, typs)]...)
+      end
+      const $(Symbol(table_name)) = $(Symbol("Type_$(table_name)"))($(relations...))
+      export $(Symbol(table_name))
+    end
   end
-  
-  error("Work in progress!")
 else
   if !isfile("./data/imdb.jld")
     println("Warning: data/imdb.jld not found. Attempting to build from source data.")
