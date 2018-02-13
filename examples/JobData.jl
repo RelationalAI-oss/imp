@@ -23,20 +23,16 @@ function drop_missing_vals(keys::Vector{Union{K, Missing}}, vals::Vector{Union{V
 end
 
 function compress(column::Vector{T}) where {T}
-  # DISABLED FOR NOW
-  # We cannot use this compress function, as we will not know the stored types
-  # when we start by an existing dataset that is already stored in the cloud
-  # in a previous run
-  # if (T <: Integer) && !isempty(column)
-  #   minval, maxval = minimum(column), maximum(column)
-  #   for T2 in [Int8, Int16, Int32, Int64]
-  #     if (minval > typemin(T2)) && (maxval < typemax(T2))
-  #       return convert(Vector{T2}, column)
-  #     end
-  #   end
-  # else
+  if (T <: Integer) && !isempty(column)
+    minval, maxval = minimum(column), maximum(column)
+    for T2 in [Int8, Int16, Int32, Int64]
+      if (minval > typemin(T2)) && (maxval < typemax(T2))
+        return convert(Vector{T2}, column)
+      end
+    end
+  else
     return column
-  # end
+  end
 end
 
 function get_table_column_id(table_name, column_name)
@@ -83,7 +79,7 @@ function upload_table_data_if_not_exists(pager_client, table_column_existence_ma
       keys = compress(keys)
       vals = compress(vals)
       
-      create_cloud_relation(Tuple{Vector{column_types[1]}, Vector{column_types[i]}}, DEFAULT_BUCKET, pager_client, 1, column_ids[i], true, "$table_name;$(column_names[i])", create_relation((keys, vals), 1))
+      create_cloud_relation(Tuple{typeof(keys), typeof(vals)}, DEFAULT_BUCKET, pager_client, 1, column_ids[i], true, "$table_name;$(column_names[i])", create_relation((keys, vals), 1))
     end
   end
 end

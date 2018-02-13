@@ -152,6 +152,13 @@ function deserialize_cloud_relation(rel::CloudRelation{T}, relation_page) where 
   r_columns = deserialize(read_iob)
   r_num_keys = deserialize(read_iob)
   r_indexes = deserialize(read_iob)
+  # We might have done a compression on the schema types (e.g., Job queries)
+  # and we might not have access to the compressed schema types in another run
+  # That is why we need to do this check and apply the type conversion if necessary
+  if(typeof(r_columns) != T)
+    r_columns = convert(T, r_columns)
+    r_indexes = convert(Dict{Vector{Int},T}, r_indexes)
+  end
   create_relation(r_columns, r_num_keys, r_indexes)
 end
 
