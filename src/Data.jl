@@ -422,15 +422,15 @@ function Base.merge{T}(old::Relation{T}, new::Relation{T})
     return old
   end
   order = collect(1:length(get_rel_columns(old)))
-  old_index = old.get_rel_index(order)
-  new_index = new.get_rel_index(order)
+  old_index = get_rel_index(old, order)
+  new_index = get_rel_index(new, order)
   result_columns::T = tuple((empty(column) for column in get_rel_columns(old))...)
   foreach_diff(old_index, new_index, old_index[1:get_rel_num_keys(old)], new_index[1:get_rel_num_keys(new)],
     (o, i) -> push_in!(result_columns, o, i),
     (n, i) -> push_in!(result_columns, n, i),
     (o, n, oi, ni) -> push_in!(result_columns, n, ni))
   result_indexes = Dict{Vector{Int}, Tuple}(order => result_columns)
-  create_relation{T}(result_columns, get_rel_num_keys(old), result_indexes)
+  create_relation(result_columns, get_rel_num_keys(old), result_indexes)
 end
 
 function Base.merge!{T}(old::Relation{T}, new::Relation{T})
