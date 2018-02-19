@@ -5,6 +5,7 @@ using Match
 using Base.Test
 using CxxWrap
 using PagerWrap
+using Base.Threads
 
 logger = Memento.config("debug"; fmt="[{level} | {name}]: {msg}")
 
@@ -141,6 +142,7 @@ mutable struct CloudRelation{T <: Tuple} <: Relation{T}
   r_memory_data::Union{MemoryRelation{T}, Void} # when the data is loaded from the cloud, it is stored in this MemoryRelation
   r_pager_client::PagerWrap.PagerClient # a reference to the pager client for loading/storing the relation
   r_cloud_bucket::String
+  load_store_modify_mutex::Mutex # this mutex should be held during the load/store/modification of the relation
 end
 
 function deserialize_cloud_relation(rel::CloudRelation{T}, relation_page) where {T <: Tuple}
@@ -164,16 +166,20 @@ end
 
 function load_rel!(rel::CloudRelation{T}, force::Bool=false) where {T <: Tuple}
   if force || !rel.r_is_loaded
-    get_relation_page_res = PagerWrap.get_page(rel.r_pager_client, rel.r_id, rel.r_cloud_bucket)
-    if !PagerWrap.IsSuccess(get_relation_page_res)
-      err = PagerWrap.GetResultError(get_relation_page_res)
-      error("Failed to download the (table, column) = ($(rel.r_name)) from the Pager with error: $(PagerWrap.GetRawMessage(err))")
+    lock(rel.load_store_modify_mutex)
+    if force || !rel.r_is_loaded # after acquiring the lock, we check again if we still need to load the relation
+      get_relation_page_res = PagerWrap.get_page(rel.r_pager_client, rel.r_id, rel.r_cloud_bucket)
+      if !PagerWrap.IsSuccess(get_relation_page_res)
+        err = PagerWrap.GetResultError(get_relation_page_res)
+        error("Failed to download the (table, column) = ($(rel.r_name)) from the Pager with error: $(PagerWrap.GetRawMessage(err))")
+      end
+      ret_relation_page = GetConstResult(get_relation_page_res)
+      
+      rel.r_memory_data = deserialize_cloud_relation(rel, ret_relation_page)
+      
+      rel.r_is_loaded = true
     end
-    ret_relation_page = GetConstResult(get_relation_page_res)
-    
-    rel.r_memory_data = deserialize_cloud_relation(rel, ret_relation_page)
-    
-    rel.r_is_loaded = true
+    unlock(rel.load_store_modify_mutex)
   end
 end
 
@@ -190,19 +196,23 @@ end
 
 function store_rel!(rel::CloudRelation{T}, force::Bool=false) where {T <: Tuple}
   if force || (rel.r_is_dirty && rel.r_is_persistent)
-    # serialize keys and values
-    columns_content = serialize_cloud_relation(rel);
-    
-    # create and upload the page
-    relation_page = PagerWrap.create_page(rel.r_id, columns_content, convert(UInt64, length(columns_content)))
-    put_relation_page_res = PagerWrap.put_page(rel.r_pager_client, relation_page, "store_rel", rel.r_cloud_bucket)
-    
-    # check the success and handle the error is necessary
-    if !PagerWrap.IsSuccess(put_relation_page_res)
-      err = PagerWrap.GetResultError(put_relation_page_res)
-      error("Failed to upload the (table, column) = ($(rel.r_name)) to the Pager with error: $(PagerWrap.GetRawMessage(err))")
+    lock(rel.load_store_modify_mutex)
+    if force || (rel.r_is_dirty && rel.r_is_persistent) # after acquiring the lock, we check again if we still need to store the relation
+      # serialize keys and values
+      columns_content = serialize_cloud_relation(rel);
+      
+      # create and upload the page
+      relation_page = PagerWrap.create_page(rel.r_id, columns_content, convert(UInt64, length(columns_content)))
+      put_relation_page_res = PagerWrap.put_page(rel.r_pager_client, relation_page, "store_rel", rel.r_cloud_bucket)
+      
+      # check the success and handle the error is necessary
+      if !PagerWrap.IsSuccess(put_relation_page_res)
+        err = PagerWrap.GetResultError(put_relation_page_res)
+        error("Failed to upload the (table, column) = ($(rel.r_name)) to the Pager with error: $(PagerWrap.GetRawMessage(err))")
+      end
+      rel.r_is_dirty = false
     end
-    rel.r_is_dirty = false
+    unlock(rel.load_store_modify_mutex)
   end
 end
 
