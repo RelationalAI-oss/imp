@@ -92,12 +92,12 @@ function create_pager_client()
   PagerWrap.PagerClient(options, cloud_storage_client)
 end
 
-schema = readdlm(open("data/job_schema.csv"), ',', header=false, quotes=true, comments=false)
+schema = readdlm(open(string(dirname(Base.source_path()), "/../data/job_schema.csv")), ',', header=false, quotes=true, comments=false)
 table_column_names = Dict()
 table_column_types = Dict()
 for column in 1:size(schema)[1]
   table_name, ix, column_name, column_type = schema[column, 1:4]
-  if isfile("../imdb/$(table_name).csv")
+  if isfile(string(dirname(Base.source_path()), "/../../imdb/$(table_name).csv"))
     push!(get!(table_column_names, table_name, []), column_name)
     push!(get!(table_column_types, table_name, []), (column_type == "integer" ? Int64 : String))
   end
@@ -145,8 +145,8 @@ if USE_CLOUD_RELATIONS
     end
   end
 else
-  if !isfile("./data/imdb.jld")
-    println("Warning: data/imdb.jld not found. Attempting to build from source data.")
+  if !isfile(string(dirname(Base.source_path()), "/../data/imdb.jld"))
+    println("Warning: $(dirname(Base.source_path()))/../data/imdb.jld not found. Attempting to build from source data.")
     if isempty(table_column_names)
       println("Warning: source data in ../imdb not found.")
       error("Cannot load imdb data for JOB")
@@ -163,10 +163,10 @@ else
         data[(table_name, column_names[i])] = (keys, vals)
       end
     end
-    @showtime save("./data/imdb.jld", "data", data)
+    @showtime save(string(dirname(Base.source_path()), "/../data/imdb.jld"), "data", data)
   else 
-    println("Loading imdb data from data/imdb.jld. This will take several minutes.")
-    data = @showtime load("./data/imdb.jld", "data")
+    println("Loading imdb data from $(dirname(Base.source_path()))/../data/imdb.jld. This will take several minutes.")
+    data = @showtime load(string(dirname(Base.source_path()), "/../data/imdb.jld"), "data")
   end
 
   @showtime for (table_name, column_names) in table_column_names

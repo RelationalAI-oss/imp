@@ -22,11 +22,11 @@ function read_chinook(filename, types; comments=false)
   create_relation(columns, length(columns))
 end
 
-const album = read_chinook("data/Album.csv", [Int64, String, Int64])
-const artist = read_chinook("data/Artist.csv", [Int64, String])
-const track = read_chinook("data/Track.csv", [Int64, String, Int64, Int64, Int64, String, Int64, Int64, Float64])
-const playlist_track = read_chinook("data/PlaylistTrack.csv", [Int64, Int64])
-const playlist = read_chinook("data/Playlist.csv", [Int64, String])
+const album = read_chinook(string(dirname(Base.source_path()), "/../data/Album.csv"), [Int64, String, Int64])
+const artist = read_chinook(string(dirname(Base.source_path()), "/../data/Artist.csv"), [Int64, String])
+const track = read_chinook(string(dirname(Base.source_path()), "/../data/Track.csv"), [Int64, String, Int64, Int64, Int64, String, Int64, Int64, Float64])
+const playlist_track = read_chinook(string(dirname(Base.source_path()), "/../data/PlaylistTrack.csv"), [Int64, Int64])
+const playlist = read_chinook(string(dirname(Base.source_path()), "/../data/Playlist.csv"), [Int64, String])
 
 function who_is_metal()
   @query begin
