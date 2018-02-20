@@ -249,7 +249,7 @@ end
 function create_cloud_relation(::Type{T}, cloud_bucket::String, pager_client::PagerWrap.PagerClient, num_keys::Int, rel_id::UInt64, is_persistent::Bool=true, rel_name::String="", memory_data::Union{MemoryRelation{T}, Void}=nothing, force_save_if_data_available::Bool=true) where {T <: Tuple}
   is_loaded = memory_data != nothing # if the data is available, then it's loaded
   is_dirty = is_loaded #if the data is directly provided, it means that we should upload it to the cloud
-  rel = CloudRelation{T}(rel_name, rel_id, is_loaded, is_dirty, is_persistent, num_keys, memory_data, pager_client, cloud_bucket)
+  rel = CloudRelation{T}(rel_name, rel_id, is_loaded, is_dirty, is_persistent, num_keys, memory_data, pager_client, cloud_bucket, Mutex())
   @assert !is_persistent || (rel_id > typemin(UInt64))
   if force_save_if_data_available && is_dirty
     store_rel!(rel)
