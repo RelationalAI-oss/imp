@@ -6,6 +6,7 @@ using Base.Test
 using CxxWrap
 using PagerWrap
 using Base.Threads
+using Imp.Util
 
 logger = Memento.config("debug"; fmt="[{level} | {name}]: {msg}")
 
@@ -149,7 +150,7 @@ function deserialize_cloud_relation(rel::CloudRelation{T}, relation_page) where 
   relation_page_content = get_raw_content(relation_page)
   relation_page_length = get_page_length(relation_page)
   relation_page_content_array = unsafe_wrap(Array{UInt8, 1}, relation_page_content, relation_page_length)
-  debug(logger, "Loading relation_page_content_array::$(typeof(relation_page_content_array)) with len = $(length(relation_page_content_array)) for rel.r_name=$(rel.r_name) and rel.r_id=$(rel.r_id)")
+  thread_safe_debug(logger, "Loading relation_page_content_array::$(typeof(relation_page_content_array)) with len = $(length(relation_page_content_array)) for rel.r_name=$(rel.r_name) and rel.r_id=$(rel.r_id)")
   read_iob = IOBuffer(relation_page_content_array)
   r_columns = deserialize(read_iob)
   r_num_keys = deserialize(read_iob)
@@ -190,7 +191,7 @@ function serialize_cloud_relation(rel::CloudRelation{T}) where {T <: Tuple}
   serialize(write_iob, rel.r_memory_data.r_indexes)
   seekstart(write_iob)
   relation_page_content_array = read(write_iob)
-  debug(logger, "Storing relation_page_content_array::$(typeof(relation_page_content_array)) with len = $(length(relation_page_content_array)) for rel.r_name=$(rel.r_name) and rel.r_id=$(rel.r_id)")
+  thread_safe_debug(logger, "Storing relation_page_content_array::$(typeof(relation_page_content_array)) with len = $(length(relation_page_content_array)) for rel.r_name=$(rel.r_name) and rel.r_id=$(rel.r_id)")
   relation_page_content_array
 end
 

@@ -15,6 +15,12 @@ macro splice(iterator, body)
   Expr(:..., :(($(esc(body)) for $(esc(iterator.args[2])) in $(esc(iterator.args[3])))))
 end
 
-export @showtime, @splice
+function thread_safe_debug(logger, str)
+  if(logger.level == "debug")
+    ccall(:jl_,Void,(Any,), str)
+  end
+end
+
+export @showtime, @splice, thread_safe_debug
 
 end

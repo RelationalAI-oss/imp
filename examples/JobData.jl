@@ -68,7 +68,7 @@ function upload_table_data_if_not_exists(pager_client, table_column_existence_ma
     table_column_id = column_ids[i]
     table_column_exists = table_column_existence_map[table_column_id]
     if(!table_column_exists)
-      debug(logger, "($table_name, $column_name) does not exist! Trying to put its data into the Pager...")
+      thread_safe_debug(logger, "($table_name, $column_name) does not exist! Trying to put its data into the Pager...")
       if(table_data == nothing)
         # table data is loaded here, as it's not already loaded for another missing column
         table_data = readtable(open("../imdb/$(table_name).csv"), header=false, eltypes=column_types)
