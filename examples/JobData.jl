@@ -71,7 +71,7 @@ function upload_table_data_if_not_exists(pager_client, table_column_existence_ma
       thread_safe_debug(logger, "($table_name, $column_name) does not exist! Trying to put its data into the Pager...")
       if(table_data == nothing)
         # table data is loaded here, as it's not already loaded for another missing column
-        table_data = readtable(open("../imdb/$(table_name).csv"), header=false, eltypes=column_types)
+        table_data = readtable(open(string(dirname(Base.source_path()), "/../../imdb/$(table_name).csv")), header=false, eltypes=column_types)
       end
       
       # read/clean/compress data for this table-column
@@ -105,7 +105,7 @@ end
 
 if USE_CLOUD_RELATIONS
   if isempty(table_column_names)
-    println("Warning: source data in ../imdb not found.")
+    println("Warning: source data in $(string(dirname(Base.source_path()), "/../../imdb")) not found.")
     error("Cannot load imdb data for JOB")
   end
   
@@ -148,7 +148,7 @@ else
   if !isfile(string(dirname(Base.source_path()), "/../data/imdb.jld"))
     println("Warning: $(dirname(Base.source_path()))/../data/imdb.jld not found. Attempting to build from source data.")
     if isempty(table_column_names)
-      println("Warning: source data in ../imdb not found.")
+      println("Warning: source data in $(string(dirname(Base.source_path()), "/../../imdb")) not found.")
       error("Cannot load imdb data for JOB")
     end
     data = Dict()
