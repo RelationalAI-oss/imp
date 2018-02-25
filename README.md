@@ -4,7 +4,7 @@ Spreadsheets + Relations + Time
 ### Prerequisites
 
 - Julia 0.6.2 or higher
-- [`PagerWrap`](https://github.com/RelationalAI/PagerWrap.jl)
+- [`PagerWrap`](https://github.com/RelationalAI/raicode/tree/master/backend/PagerWrap.jl)
 
 
 ### Installation
