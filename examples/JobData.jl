@@ -12,7 +12,7 @@ using PagerWrap
 using Imp.Util
 using Imp.Data
 
-logger = Memento.config("debug"; fmt="[{level} | {name}]: {msg}")
+logger = Memento.config("warn"; fmt="[{level} | {name}]: {msg}")
 
 function drop_missing_vals(keys::Vector{Union{K, Missing}}, vals::Vector{Union{V, Missing}}) ::Tuple{Vector{K}, Vector{V}} where {K, V}
   @assert length(keys) == length(vals)
@@ -119,7 +119,6 @@ if USE_CLOUD_RELATIONS
   table_column_existence_results = Vector{Bool}()
   table_column_ids_to_check = collect(table_column_ids_set)
   table_column_existence_operation_res = PagerWrap.pages_exist(pager_client, [PagerWrap.PageId(id) for id in table_column_ids_to_check], table_column_existence_results, DEFAULT_BUCKET)
-  println("table_column_existence_operation_res = $table_column_existence_operation_res")
   @assert table_column_existence_operation_res
   @assert length(table_column_ids_to_check) ==  length(table_column_existence_results) "The returned result size ($(length(table_column_existence_results))) is not the same as the number of queried pages ($(length(table_column_ids_to_check)))"
   

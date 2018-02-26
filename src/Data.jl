@@ -8,7 +8,7 @@ using PagerWrap
 using Base.Threads
 using Imp.Util
 
-logger = Memento.config("debug"; fmt="[{level} | {name}]: {msg}")
+logger = Memento.config("warn"; fmt="[{level} | {name}]: {msg}")
 
 @generated function cmp_in{T <: Tuple}(xs::T, ys::T, x_at::Int, y_at::Int)
   n = length(T.parameters)
