@@ -79,7 +79,7 @@ function upload_table_data_if_not_exists(pager_client, table_column_existence_ma
       keys = compress(keys)
       vals = compress(vals)
       
-      create_cloud_relation(Tuple{typeof(keys), typeof(vals)}, DEFAULT_BUCKET, pager_client, 1, column_ids[i], true, "$table_name;$(column_names[i])", create_relation((keys, vals), 1))
+      create_cloud_relation(Tuple{typeof(keys), typeof(vals)}, DEFAULT_BUCKET, pager_client, 1, PagerWrap.PageId(table_column_id), true, "$table_name;$(table_column_id)", create_relation((keys, vals), 1))
     end
   end
 end
@@ -118,7 +118,8 @@ if USE_CLOUD_RELATIONS
   # check the existence of the table-columns
   table_column_existence_results = Vector{Bool}()
   table_column_ids_to_check = collect(table_column_ids_set)
-  table_column_existence_operation_res = PagerWrap.pages_exist(pager_client, table_column_ids_to_check, table_column_existence_results, DEFAULT_BUCKET)
+  table_column_existence_operation_res = PagerWrap.pages_exist(pager_client, [PagerWrap.PageId(id) for id in table_column_ids_to_check], table_column_existence_results, DEFAULT_BUCKET)
+  println("table_column_existence_operation_res = $table_column_existence_operation_res")
   @assert table_column_existence_operation_res
   @assert length(table_column_ids_to_check) ==  length(table_column_existence_results) "The returned result size ($(length(table_column_existence_results))) is not the same as the number of queried pages ($(length(table_column_ids_to_check)))"
   
@@ -133,7 +134,7 @@ if USE_CLOUD_RELATIONS
     
     # create the corresponding cloud relation for this table-column
     column_ids = table_column_ids[table_name]
-    relations = [create_cloud_relation(Tuple{Vector{column_types[1]}, Vector{column_types[column_idx]}}, DEFAULT_BUCKET, pager_client, 1, column_ids[column_idx], true, "$table_name;$(column_names[column_idx])") for column_idx in 2:length(column_names)]
+    relations = [create_cloud_relation(Tuple{Vector{column_types[1]}, Vector{column_types[column_idx]}}, DEFAULT_BUCKET, pager_client, 1, PagerWrap.PageId(column_ids[column_idx]), true, "$table_name;$(column_names[column_idx])") for column_idx in 2:length(column_names)]
     fields = [Symbol(replace(column_name, "_id", "")) for column_name in column_names[2:end]]
     typs = [Symbol("T$i") for i in 2:length(column_names)]
     @eval begin
