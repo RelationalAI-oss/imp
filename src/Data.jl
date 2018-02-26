@@ -135,7 +135,7 @@ end
 
 mutable struct CloudRelation{T <: Tuple} <: Relation{T}
   r_name::String # the relation name, which is mostly used for easier debugging and a reference point for finding the relation ID
-  r_id::UInt64 # relation ID is the main key used to lookup a relation from the cloud
+  r_id::PagerWrap.PageId # relation ID is the main key used to lookup a relation from the cloud
   r_is_loaded::Bool # a flag that determines whether the relation is already loaded or nor
   r_is_dirty::Bool # a flag that shows whether the relation contains data that is not still stored on the cloud if it's a persistent relation
   r_is_persistent::Bool # a flag that determines whether the relation should be persistet on the cloud
@@ -247,11 +247,11 @@ function replace!(old::CloudRelation{T}, new::CloudRelation{T}) where {T <: Tupl
   replace!(old.r_memory_data, new.r_memory_data)
 end
 
-function create_cloud_relation(::Type{T}, cloud_bucket::String, pager_client::PagerWrap.PagerClient, num_keys::Int, rel_id::UInt64, is_persistent::Bool=true, rel_name::String="", memory_data::Union{MemoryRelation{T}, Void}=nothing, force_save_if_data_available::Bool=true) where {T <: Tuple}
+function create_cloud_relation(::Type{T}, cloud_bucket::String, pager_client::PagerWrap.PagerClient, num_keys::Int, rel_id::PagerWrap.PageId, is_persistent::Bool=true, rel_name::String="", memory_data::Union{MemoryRelation{T}, Void}=nothing, force_save_if_data_available::Bool=true) where {T <: Tuple}
   is_loaded = memory_data != nothing # if the data is available, then it's loaded
   is_dirty = is_loaded #if the data is directly provided, it means that we should upload it to the cloud
   rel = CloudRelation{T}(rel_name, rel_id, is_loaded, is_dirty, is_persistent, num_keys, memory_data, pager_client, cloud_bucket, Mutex())
-  @assert !is_persistent || (rel_id > typemin(UInt64))
+  @assert !is_persistent || (get_page_id_part(rel_id) > typemin(UInt64))
   if force_save_if_data_available && is_dirty
     store_rel!(rel)
   end
