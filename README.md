@@ -15,6 +15,11 @@ As `imp` is not a registered package, you can get the package using the followin
 Pkg.clone("https://github.com/RelationalAI-oss/imp")
 ```
 
+And then, build the package using the following Julia command:
+
+```julia
+Pkg.build("Imp")
+```
 
 ### Running the tests
 
