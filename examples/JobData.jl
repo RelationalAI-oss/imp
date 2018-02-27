@@ -59,6 +59,7 @@ end
 
 const USE_CLOUD_RELATIONS = true
 const DEFAULT_BUCKET = "relationalai"
+const KEEP_PAGES_IN_MEMORY_OF_PAGER = false
 
 function upload_table_data_if_not_exists(pager_client, table_column_existence_map, table_column_ids, table_name, column_names, column_types)
   table_data::Union{DataFrame, Void} = nothing
@@ -85,7 +86,7 @@ function upload_table_data_if_not_exists(pager_client, table_column_existence_ma
 end
 
 function create_pager_client()
-  options = PagerWrap.PagerOptions(DEFAULT_BUCKET)
+  options = PagerWrap.PagerOptions(DEFAULT_BUCKET, KEEP_PAGES_IN_MEMORY_OF_PAGER)
   PagerWrap.InitPager(options)
   cloud_options = PagerWrap.GetCloudStorageOptions(options)
   cloud_storage_client = PagerWrap.CreateCloudStorageClient(cloud_options)
