@@ -1,8 +1,8 @@
 module TestColumns
 
-using Test
+using Base.Test
 using BenchmarkTools
-using Random
+using Base.Random
 
 using Imp
 

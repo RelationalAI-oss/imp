@@ -9,13 +9,27 @@ using Rematch
 #     print(io, "Set(", collect(set), ")")
 # end
 
+############## START COMPATIBILITY WITH JULIA 0.7
+function coalesce end
+coalesce(x::Any) = x
+# coalesce(x::Some) = x.value
+coalesce(x::Void) = nothing
+# coalesce(x::Missing) = missing
+coalesce(x::Any, y...) = x
+# coalesce(x::Some, y...) = x.value
+# coalesce(x::Union{Void, Missing}, y...) = coalesce(y...)
+coalesce(x::Void, y...) = coalesce(y...)
+pairs(collection::Vector) = Base.Generator(=>, 1:length(collection), collection)
+findall(testf::Function, A) = collect(first(p) for p in pairs(A) if testf(last(p)))
+############## FINISH COMPATIBILITY WITH JULIA 0.7
+
 macro splice(iterator, body)
   @assert iterator.head == :call
   @assert iterator.args[1] == :in
   Base.Expr(:..., :(($(esc(body)) for $(esc(iterator.args[2])) in $(esc(iterator.args[3])))))
 end
 
-include("columns.jl")
+# include("columns.jl")
 
 # --- booleans
 
@@ -388,7 +402,7 @@ end
 return!(result::Set, returned::Union{Vector, Set}) = foreach(returned -> return!(result, returned), returned)
 return!(result::Set, returned::Tuple) = push!(result, returned)
 return!(result::Set, returned::Bool) = returned && push!(result, ())
-return!(result::Set, returned::Nothing) = nothing
+return!(result::Set, returned::Void) = nothing
 return!(result::Set, returned) = push!(result, (returned,))
 
 function _interpret(env::Env{Set}, expr::Apply) ::Set
@@ -561,7 +575,7 @@ end
 
 # --- lower ---
 
-const Arity = Union{Int64, Nothing} # false has arity nothing
+const Arity = Union{Int64, Void} # false has arity nothing
 
 function arity(arities::Set{Int64})::Arity
     @match length(arities) begin
@@ -926,9 +940,9 @@ function order_vars(bound_vars::Vector{Var}, vars::Vector{Var}, clauses::Vector{
             end
         end
         ix = findfirst(in(supported), remaining)
-        if ix == nothing
+        if ix == 0 || ix == nothing
             # TODO can't bail here because some tests are unsupported
-            @warn "Cannot support $remaining with $clauses"
+            warn("Cannot support $remaining with $clauses")
             append!(ordered, remaining)
             break
         end
@@ -973,7 +987,7 @@ function conjunctive_query(expr::Abstract)::Expr
     is_false && return Constant(false_set)
 
     # heuristic - solve variables in the order they are mentioned
-    var_order = unique!(vcat(used_vars, expr.vars, exists_vars))
+    var_order = unique(vcat(used_vars, expr.vars, exists_vars))
     query_vars = intersect(var_order, vcat(expr.vars, exists_vars))
 
     ConjunctiveQuery(copy(expr.vars), query_vars, Expr[], clauses)

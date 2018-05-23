@@ -3,9 +3,9 @@ module Basic
 import MacroTools
 import MacroTools: @capture
 using Imp
-using Test
+using Base.Test
 
-const globals = Dict{Symbol, Set}(
+const GLOBS = Dict{Symbol, Set}(
     :person => Set([("alice",), ("bob",), ("eve",)]),
     :likes => Set([("alice", "bob"), ("bob", "bob"), ("eve", "eve")]),
     :string => Set([("alice",), ("bob",), ("eve",), ("cthulu",), ("n/a",), ("yes",), ("no",)]),
@@ -19,7 +19,7 @@ const globals = Dict{Symbol, Set}(
     :h => Set([(1,2)]),
 )
 
-const everything = Set{Any}([(scalar,) for (_,set) in globals for row in set for scalar in row])
+const EVERYTHING = Set{Any}([(scalar,) for (_,set) in GLOBS for row in set for scalar in row])
 
 function test_imp_pass(env, expr, expected_inferred_type, expected_result, prev_inferred_type, prev_result)
     types = Set{Type}()
@@ -49,7 +49,7 @@ function test_imp_pass(env, expr, expected_inferred_type, expected_result, prev_
     (actual_inferred_type, actual_result)
 end
 
-function test_imp(raw_expr; lowered_expr=nothing, inferred_type=nothing, result=nothing, unboundable=false, everything=everything, globals=globals)
+function test_imp(raw_expr; lowered_expr=nothing, inferred_type=nothing, result=nothing, unboundable=false, everything=EVERYTHING, globals=GLOBS)
     name = string(raw_expr)
     name = replace(name, r"#=[^(=#)]*=#" => " ")
     name = replace(name, r"\n\s*"s => " ")
@@ -122,7 +122,7 @@ end
 # --- scoping ---
 
 function test_separate_scopes(expr)
-    @test_throws Imp.CompileError imp(expr, passes=[Imp.PARSE], everything=everything)
+    @test_throws Imp.CompileError imp(expr, passes=[Imp.PARSE], everything=EVERYTHING)
 end
 
 test_separate_scopes(:(p -> q))
