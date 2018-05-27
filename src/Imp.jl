@@ -213,9 +213,10 @@ Base.show(io::IO, expr::Expr) = print(io, string("@imp(", repr(unparse(expr)), "
 
 struct CompileError
     message::String
+    stack_trace::Vector{StackTraces.StackFrame}
 end
 
-compile_error(message::String) = throw(CompileError(message))
+compile_error(message::String) = throw(CompileError(message, stacktrace()))
 
 struct Scope
     current::Dict{Symbol, Int64}
