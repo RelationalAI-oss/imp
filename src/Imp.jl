@@ -346,6 +346,12 @@ function _interpret(env::Env{Set}, expr::Constant) ::Set
     expr.value
 end
 
+struct IndexedFunc
+    f::Function
+end
+
+Base.getindex(func::IndexedFunc, key...) = func.f(key...)
+
 function _interpret(env::Env{Set}, expr::Primitive) ::Set
     @match (expr.f, expr.args) begin
         (:reduce, [raw_op::ConjunctiveQuery, raw_init, raw_values]) => begin
@@ -369,6 +375,21 @@ function _interpret(env::Env{Set}, expr::Primitive) ::Set
             value = reduce(op, init, raw_values)
             Set([(value,)])
         end
+        (:reduce, [raw_op, raw_init, raw_values]) => begin
+            raw_init = interpret(env, raw_init)
+            raw_values = interpret(env, raw_values)
+            op = if raw_op isa Native
+                IndexedFunc(raw_op.f)
+            else
+                raw_op = interpret(env, raw_op)
+                Dict(((a,b) => c for (a,b,c) in raw_op))
+            end 
+            @assert length(raw_init) == 1
+            @assert length(first(raw_init)) == 1
+            init = first(raw_init)[1]
+            value = reduce((a,b) -> op[a,b[end]], init, raw_values)
+            Set([(value,)])
+        end
         _ => begin
             args = [interpret(env, arg) for arg in expr.args]
             @match (expr.f, args) begin
@@ -378,14 +399,6 @@ function _interpret(env::Env{Set}, expr::Primitive) ::Set
                 (:(=>), [a, b]) => bool_to_set((!set_to_bool(a) || set_to_bool(b)))
                 (:(==), [a, b]) => bool_to_set(a == b)
                 (:iff, [cond, true_branch, false_branch]) => set_to_bool(cond) ? true_branch : false_branch
-                (:reduce, [raw_op, raw_init, values]) => begin
-                    op = Dict(((a,b) => c for (a,b,c) in raw_op))
-                    @assert length(raw_init) == 1
-                    @assert length(first(raw_init)) == 1
-                    init = first(raw_init)[1]
-                    value = reduce((a,b) -> op[a,b[end]], init, values)
-                    Set([(value,)])
-                end
                 (:exists, [arg]) => bool_to_set(arg != false_set)
                 (:forall, [arg]) => bool_to_set(arg == env[Var(:everything)])
                 (:tuple, args) => reduce(true_set, args) do a, b
