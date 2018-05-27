@@ -963,7 +963,7 @@ function conjunctive_query(expr::Abstract)::Expr
         Constant(value) where (value == true_set) => nothing
         Apply(f, vars) => begin
             push!(clauses, expr)
-            append!(used_vars, vars)
+            append!(used_vars, filter(v -> v isa Var, vars))
         end
         Primitive(:(==), [a, b]) => begin
             push!(clauses, expr)
