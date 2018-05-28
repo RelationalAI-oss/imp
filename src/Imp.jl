@@ -4,8 +4,14 @@ import MacroTools
 import MacroTools: @capture
 using Rematch
 
-# Interpreter Set type (used for input/intermediate/output data collections)
-const ISet = Set
+# Abstract Interpreter Set type (used for input/intermediate/output data collections)
+const ASet = Set
+# Concrete Interpreter Set type (used for input/intermediate/output data collections)
+const ISet = ASet
+# Empty Interpreter Set type (used for input/intermediate/output data collections)
+const ESet = ASet{Tuple{}}
+# Singleton Interpreter Set type (used for input/intermediate/output data collections)
+const SSet = ASet
 # Type Set type
 const TSet = Set
 # Number Set type
@@ -40,17 +46,17 @@ end
 
 # --- booleans
 
-const false_set = ISet{Tuple{}}()
-const true_set = ISet{Tuple{}}([()])
-bool_to_set(bool::Bool)::ISet = bool ? true_set : false_set
-set_to_bool(set::ISet)::Bool = !isempty(set)
+const false_set = ESet()
+const true_set = SSet{Tuple{}}([()])
+bool_to_set(bool::Bool)::ASet = bool ? true_set : false_set
+set_to_bool(set::ASet)::Bool = !isempty(set)
 
 # --- parse ---
 
 abstract type Expr end
 
 struct Constant <: Expr
-    value::ISet # TODO ISet{T} where T <: Tuple
+    value::ASet # TODO ASet{T} where T <: Tuple
 end
 
 struct Var <: Expr
@@ -132,7 +138,7 @@ function parse(ast)
     if @capture(ast, bool_Bool)
         bool ? Constant(true_set) : Constant(false_set)
     elseif @capture(ast, constant_Int64_Float64_String)
-        Constant(ISet([(constant,)]))
+        Constant(SSet([(constant,)]))
     elseif @capture(ast, name_Symbol)
         if name == :(_)
             Var(:everything)
@@ -297,7 +303,7 @@ end
 # --- interpret ---
 
 const Env{T} = Dict{Var, T}
-function interpret(env::Env, expr::Expr)::ISet
+function interpret(env::Env, expr::Expr)::ASet
     _interpret(env, expr)
 end
 
@@ -305,7 +311,7 @@ function _interpret(env::Env{T}, expr::Var)::T where T
     env[expr]
 end
 
-function _interpret(env::Env, expr::Apply)::ISet
+function _interpret(env::Env, expr::Apply)::ASet
     f = interpret(env, expr.f)
     for arg in map((arg) -> interpret(env, arg), expr.args)
         result = ISet()
@@ -321,7 +327,7 @@ function _interpret(env::Env, expr::Apply)::ISet
     f
 end
 
-function _interpret(env::Env, expr::Abstract, var_ix::Int64)::ISet
+function _interpret(env::Env, expr::Abstract, var_ix::Int64)::ASet
     if var_ix > length(expr.vars)
         interpret(env, expr.value)
     else
@@ -337,11 +343,11 @@ function _interpret(env::Env, expr::Abstract, var_ix::Int64)::ISet
     end
 end
 
-function _interpret(env::Env, expr::Abstract)::ISet
+function _interpret(env::Env, expr::Abstract)::ASet
     _interpret(env, expr, 1)
 end
 
-function _interpret(env::Env, expr::Let)::ISet
+function _interpret(env::Env, expr::Let)::ASet
     env[expr.var] = interpret(env, expr.value)
     interpret(env, expr.body)
 end
@@ -352,7 +358,7 @@ end
 
 # --- interpret values ---
 
-function _interpret(env::Env{ISet}, expr::Constant) ::ISet
+function _interpret(env::Env{ASet}, expr::Constant) ::ASet
     expr.value
 end
 
@@ -362,7 +368,7 @@ end
 
 Base.getindex(func::IndexedFunc, key...) = func.f(key...)
 
-function _interpret(env::Env{ISet}, expr::Primitive) ::ISet
+function _interpret(env::Env{ASet}, expr::Primitive) ::ASet
     @match (expr.f, expr.args) begin
         (:reduce, [raw_op::ConjunctiveQuery, raw_init, raw_values]) => begin
             # TODO this is such a mess - need to at least reorder variables - not correct to assume that input vars get ordered first
@@ -370,8 +376,8 @@ function _interpret(env::Env{ISet}, expr::Primitive) ::ISet
             (var_a, var_b) = raw_op.query_vars[1:2]
             raw_op = ConjunctiveQuery(setdiff(raw_op.yield_vars, [var_a, var_b]), raw_op.query_vars[3:end], raw_op.query_bounds[3:end], raw_op.clauses)
             op(a,b) = begin
-                env[var_a] = ISet([(a,)])
-                env[var_b] = ISet([(b[end],)])
+                env[var_a] = SSet([(a,)])
+                env[var_b] = SSet([(b[end],)])
                 result = interpret(env, raw_op)
                 @assert length(result) == 1
                 @assert length(first(result)) == 1
@@ -383,7 +389,7 @@ function _interpret(env::Env{ISet}, expr::Primitive) ::ISet
             init = first(raw_init)[1]
             raw_values = interpret(env, raw_values)
             value = reduce(op, init, raw_values)
-            ISet([(value,)])
+            SSet([(value,)])
         end
         (:reduce, [raw_op, raw_init, raw_values]) => begin
             raw_init = interpret(env, raw_init)
@@ -398,7 +404,7 @@ function _interpret(env::Env{ISet}, expr::Primitive) ::ISet
             @assert length(first(raw_init)) == 1
             init = first(raw_init)[1]
             value = reduce((a,b) -> op[a,b[end]], init, raw_values)
-            ISet([(value,)])
+            SSet([(value,)])
         end
         _ => begin
             args = [interpret(env, arg) for arg in expr.args]
@@ -423,13 +429,13 @@ end
 
 
 # TODO these are kinda hacky - should probably depend on native.out_types
-return!(result::ISet, returned::Union{Vector, ISet}) = foreach(returned -> return!(result, returned), returned)
-return!(result::ISet, returned::Tuple) = push!(result, returned)
-return!(result::ISet, returned::Bool) = returned && push!(result, ())
-return!(result::ISet, returned::Void) = nothing
-return!(result::ISet, returned) = push!(result, (returned,))
+return!(result::ASet, returned::Union{Vector, ASet}) = foreach(returned -> return!(result, returned), returned)
+return!(result::ASet, returned::Tuple) = push!(result, returned)
+return!(result::ASet, returned::Bool) = returned && push!(result, ())
+return!(result::ASet, returned::Void) = nothing
+return!(result::ASet, returned) = push!(result, (returned,))
 
-function _interpret(env::Env{ISet}, expr::Apply) ::ISet
+function _interpret(env::Env{ASet}, expr::Apply) ::ASet
     if expr.f isa Native
         f = expr.f
         result = ISet()
@@ -470,7 +476,7 @@ const TSetType = TSet{RowType}
 
 row_type(row::Tuple) = map(typeof, row)
 set_type(set::TSet) = map(row_type, set)
-env_types(env::Env{ISet}) = Env{TSetType}(name => set_type(set) for (name, set) in env)
+env_types(env::Env{ASet}) = Env{TSetType}(name => set_type(set) for (name, set) in env)
 
 const bool_type = TSetType([()])
 const false_type = TSetType([])
@@ -528,7 +534,7 @@ function interpret(env::Env{TSetType}, expr::Expr)
     union!(get!(expr_types, expr, TSetType()), expr_type)
     expr_type
 end
-function infer_types(env::Env{ISet}, types::TSet{Type}, expr::Expr)::Dict{Expr, TSetType}
+function infer_types(env::Env{ASet}, types::TSet{Type}, expr::Expr)::Dict{Expr, TSetType}
     empty!(expr_types)
     interpret(push!(env_types(env), Var(:everything)=>TSet(((typ,) for typ in types))), expr)
     copy(expr_types)
@@ -800,7 +806,7 @@ function raise_union(expr::Expr)::Expr
     raise(map_expr(raise_union, expr))
 end
 
-function lower(env::Env{ISet}, types::TSet{Type}, expr::Expr)::Expr
+function lower(env::Env{ASet}, types::TSet{Type}, expr::Expr)::Expr
     last_id = Ref(0)
     env_arities = Env{NSet}((name => NSet(length(row) for row in set) for (name, set) in env))
     env_arities[Var(:everything)] = NSet(1)
@@ -854,15 +860,15 @@ function unparse(expr::Union{Permute, ConjunctiveQuery})
     end
 end
 
-function _interpret(env::Env, expr::Permute)::ISet
+function _interpret(env::Env, expr::Permute)::ASet
     ISet((row[expr.columns] for row in interpret(env, expr.arg)
          if all((d) -> row[d[1]] == row[d[2]], expr.dupe_columns)))
 end
 
-function _interpret(env::Env, expr::ConjunctiveQuery, var_ix::Int64)::ISet
+function _interpret(env::Env, expr::ConjunctiveQuery, var_ix::Int64)::ASet
     if var_ix > length(expr.query_vars)
         if isempty(expr.clauses)
-            ISet([()])
+            SSet([()])
         else
             intersect(map(expr -> interpret(env, expr), expr.clauses)...)
         end
@@ -871,7 +877,7 @@ function _interpret(env::Env, expr::ConjunctiveQuery, var_ix::Int64)::ISet
         bound = expr.query_bounds[var_ix]
         result = ISet()
         for var_row in interpret(env, bound)
-            env[var] = ISet([var_row])
+            env[var] = SSet([var_row])
             for value_row in _interpret(env, expr, var_ix+1)
                 push!(result, (var_row..., value_row...))
             end
@@ -880,7 +886,7 @@ function _interpret(env::Env, expr::ConjunctiveQuery, var_ix::Int64)::ISet
     end
 end
 
-function _interpret(env::Env, expr::ConjunctiveQuery)::ISet
+function _interpret(env::Env, expr::ConjunctiveQuery)::ASet
     yield_ixes = map(var -> findfirst(isequal(var), expr.query_vars), expr.yield_vars)
     ISet((row[yield_ixes] for row in _interpret(env, expr, 1)))
 end
@@ -1108,11 +1114,11 @@ bound_abstract(expr::Expr) = bound_abstract(Var[], expr)
 # TODO this is a temporary hack until we can use more sensible data structures
 
 struct Lookup <: Expr
-    index::Dict{Tuple, ISet}
+    index::Dict{Tuple, ASet}
     args::Vector{Var}
 end
 
-function _interpret(env::Env, expr::Lookup)::ISet
+function _interpret(env::Env, expr::Lookup)::ASet
     row = tuple((first(first(env[arg])) for arg in expr.args)...)
     get(expr.index, row, false_set)
 end
@@ -1120,7 +1126,7 @@ end
 function build_indexes(env::Env, expr::Expr)::Expr
     @match map_expr(expr -> build_indexes(env, expr), expr) begin
         Apply(f && Permute(Var(_, 0), columns, _), args) where (length(columns) == length(args)+1) => begin
-            index = Dict{Tuple, ISet}()
+            index = Dict{Tuple, ASet}()
             for row in interpret(env, f)
                 push!(get!(() -> ISet(), index, row[1:end-1]), row[end:end])
             end
@@ -1139,15 +1145,15 @@ Base.:-(a::Pass, b::Pass) = Int64(a) - Int64(b)
 Base.:+(a::Pass, b::Int64) = Pass(Int64(a) + b)
 Base.:-(a::Pass, b::Int64) = Pass(Int64(a) - b)
 
-global_env = Env{ISet}()
+global_env = Env{ASet}()
 global_lib = Env{Expr}()
 
 function imp(expr; globals=nothing, env=global_env, lib=global_lib, types=nothing, everything=nothing, passes=instances(Pass))
     if env == nothing
         if globals != nothing
-            env = Env{ISet}(Var(name) => set for (name, set) in globals)
+            env = Env{ASet}(Var(name) => set for (name, set) in globals)
         else
-            env = Env{ISet}()
+            env = Env{ASet}()
         end
     end
     if everything != nothing
@@ -1169,7 +1175,7 @@ function imp(expr; globals=nothing, env=global_env, lib=global_lib, types=nothin
         if lib != nothing
             expr = replace_expr(expr, lib)
         end
-        scope_env = push!(copy(env), Var(:everything) => ISet())
+        scope_env = push!(copy(env), Var(:everything) => ESet())
         expr = separate_scopes(Scope(scope_env), expr)
     end
     if INLINE in passes
@@ -1196,7 +1202,7 @@ macro imp(expr)
     end
 end
 
-function show_imp(set::ISet)
+function show_imp(set::ASet)
     for row in sort(collect(set))
         println(row)
     end
