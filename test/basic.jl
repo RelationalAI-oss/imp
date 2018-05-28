@@ -59,7 +59,7 @@ function test_imp(raw_expr; lowered_expr=nothing, inferred_type=nothing, result=
         if everything != nothing
             env[Imp.Var(:everything)] = everything
         end
-        expected_inferred_type = (inferred_type != nothing) ? Imp.SetType(inferred_type) : nothing
+        expected_inferred_type = (inferred_type != nothing) ? Imp.TSetType(inferred_type) : nothing
         expected_result = (result != nothing) ? imp(result, globals=globals, env=nothing, everything=everything, passes=[Imp.PARSE,Imp.INTERPRET]) : nothing
 
         (prev_inferred_type, prev_result) = (nothing, nothing)
