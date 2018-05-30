@@ -1038,7 +1038,7 @@ function bound_clauses(bound_vars::Vector{Var}, var::Var, clauses::Vector{Expr})
                 end
             end
             Apply(f::Native, args) => begin
-                if all(in(bound_vars), args[1:length(f.in_types)]) &&
+                if all(v -> (v isa Constant || v in bound_vars), args[1:length(f.in_types)]) &&
                     (var in args[length(f.in_types)+1:end])
                     inner_apply = Apply(f, args[1:length(f.in_types)])
                     outer_apply = Apply(inner_apply, args[length(f.in_types)+1:end])
