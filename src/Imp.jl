@@ -367,39 +367,32 @@ Base.getindex(func::IndexedFunc, key...) = func.f(key...)
 
 function _interpret(env::Env{ASet}, expr::Primitive) ::ASet
     @match (expr.f, expr.args) begin
-        (:reduce, [raw_op::ConjunctiveQuery, raw_init, raw_values]) => begin
-            # TODO this is such a mess - need to at least reorder variables - not correct to assume that input vars get ordered first
-            @assert raw_op.query_vars[1:2] == raw_op.yield_vars[1:2]
-            (var_a, var_b) = raw_op.query_vars[1:2]
-            raw_op = ConjunctiveQuery(setdiff(raw_op.yield_vars, [var_a, var_b]), raw_op.query_vars[3:end], raw_op.query_bounds[3:end], raw_op.clauses)
-            op(a,b) = begin
-                env[var_a] = SSet([(a,)])
-                env[var_b] = SSet([(b[end],)])
-                result = interpret(env, raw_op)
-                @assert length(result) == 1
-                @assert length(first(result)) == 1
-                first(first(result))
+        (:reduce, [raw_op, raw_init, raw_values]) => begin
+            op = if raw_op isa ConjunctiveQuery
+                # TODO this is such a mess - need to at least reorder variables - not correct to assume that input vars get ordered first
+                @assert raw_op.query_vars[1:2] == raw_op.yield_vars[1:2]
+                (var_a, var_b) = raw_op.query_vars[1:2]
+                raw_op = ConjunctiveQuery(setdiff(raw_op.yield_vars, [var_a, var_b]), raw_op.query_vars[3:end], raw_op.query_bounds[3:end], raw_op.clauses)
+                operation(a,b) = begin
+                    env[var_a] = SSet([(a,)])
+                    env[var_b] = SSet([(b[end],)])
+                    result = interpret(env, raw_op)
+                    @assert length(result) == 1
+                    @assert length(first(result)) == 1
+                    first(first(result))
+                end
+                IndexedFunc(operation)
+            elseif raw_op isa Native
+                IndexedFunc(raw_op.f)
+            else
+                raw_op = interpret(env, raw_op)
+                Dict(((a,b) => c for (a,b,c) in raw_op))
             end
             raw_init = interpret(env, raw_init)
             @assert length(raw_init) == 1
             @assert length(first(raw_init)) == 1
             init = first(raw_init)[1]
             raw_values = interpret(env, raw_values)
-            value = reduce(op, init, raw_values)
-            SSet([(value,)])
-        end
-        (:reduce, [raw_op, raw_init, raw_values]) => begin
-            raw_init = interpret(env, raw_init)
-            raw_values = interpret(env, raw_values)
-            op = if raw_op isa Native
-                IndexedFunc(raw_op.f)
-            else
-                raw_op = interpret(env, raw_op)
-                Dict(((a,b) => c for (a,b,c) in raw_op))
-            end 
-            @assert length(raw_init) == 1
-            @assert length(first(raw_init)) == 1
-            init = first(raw_init)[1]
             value = reduce((a,b) -> op[a,b[end]], init, raw_values)
             SSet([(value,)])
         end
