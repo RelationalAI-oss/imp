@@ -251,10 +251,7 @@ end
 function separate_scopes(scope::Scope, expr::Union{Abstract, AbstractHigher})
     scope = Scope(copy(scope.current), scope.used)
     for var in expr.vars
-        # TODO(MD) The original value assigned below was: `get(scope.used, var.name, 0) + 1`
-        # - The default value (i.e., `0`) is not appropriate, as it triggers the wrong conidtion in `build_indexes`
-        # - `+ 1` is not appropriate as it hides the `exists` variables from being abstracted, e.g., (x y : exists(x :: tuples(x,y) and y > 10))
-        scope.current[var.name] = scope.used[var.name] = get(scope.used, var.name, 1)
+        scope.current[var.name] = scope.used[var.name] = get(scope.used, var.name, 0) + 1
     end
     map_expr((expr) -> separate_scopes(scope, expr), expr)
 end
