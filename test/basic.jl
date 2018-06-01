@@ -5,18 +5,18 @@ import MacroTools: @capture
 using Imp
 using Base.Test
 
-const GLOBS = Dict{Symbol, Set}(
-    :person => Set([("alice",), ("bob",), ("eve",)]),
-    :likes => Set([("alice", "bob"), ("bob", "bob"), ("eve", "eve")]),
-    :string => Set([("alice",), ("bob",), ("eve",), ("cthulu",), ("n/a",), ("yes",), ("no",)]),
-    :integer => Set([(0,), (1,), (2,)]),
-    :evil => Set([("eve",), ("cthulu",)]),
-    :rsvp => Set([("alice", "yes"), ("bob", "no"), ("cthulu", "no")]),
-    :+ => Set([(a, b, (a+b) % 3) for a in 0:2 for b in 0:2]),
-    :points => Set([("alice", 0), ("bob", 1), ("cthulu", 1)]),
-    :f => Set([()]),
-    :g => Set([(1,)]),
-    :h => Set([(1,2)]),
+const GLOBS = Dict{Symbol, Imp.ASet}(
+    :person => Imp.ISet([("alice",), ("bob",), ("eve",)]),
+    :likes => Imp.ISet([("alice", "bob"), ("bob", "bob"), ("eve", "eve")]),
+    :string => Imp.ISet([("alice",), ("bob",), ("eve",), ("cthulu",), ("n/a",), ("yes",), ("no",)]),
+    :integer => Imp.ISet([(0,), (1,), (2,)]),
+    :evil => Imp.ISet([("eve",), ("cthulu",)]),
+    :rsvp => Imp.ISet([("alice", "yes"), ("bob", "no"), ("cthulu", "no")]),
+    :+ => Imp.ISet([(a, b, (a+b) % 3) for a in 0:2 for b in 0:2]),
+    :points => Imp.ISet([("alice", 0), ("bob", 1), ("cthulu", 1)]),
+    :f => Imp.ISet([()]),
+    :g => Imp.ISet([(1,)]),
+    :h => Imp.ISet([(1,2)]),
 )
 
 const EVERYTHING = Set{Any}([(scalar,) for (_,set) in GLOBS for row in set for scalar in row])
@@ -54,7 +54,7 @@ function test_imp(raw_expr; lowered_expr=nothing, inferred_type=nothing, result=
     name = replace(name, r"#=[^(=#)]*=#" => " ")
     name = replace(name, r"\n\s*"s => " ")
     @testset "$name" begin
-        env = Imp.Env{Set}(Imp.Var(name) => set for (name, set) in globals)
+        env = Imp.Env{Imp.ASet}(Imp.Var(name) => set for (name, set) in globals)
 
         if everything != nothing
             env[Imp.Var(:everything)] = everything

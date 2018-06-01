@@ -311,15 +311,20 @@ end
 function _interpret(env::Env, expr::Apply)::ASet
     f = interpret(env, expr.f)
     for arg in map((arg) -> interpret(env, arg), expr.args)
-        result = ISet()
+        result = nothing
         for n in map(length, arg)
             for row in f
                 if (length(row) >= n) && (row[1:n] in arg)
-                    push!(result, row[n+1:end])
+                    value = row[n+1:end]
+                    if(result == nothing)
+                        result = ISet([value])
+                    else
+                        push!(result, value)
+                    end
                 end
             end
         end
-        f = result
+        f = result == nothing ? ESet() : result
     end
     f
 end
@@ -419,40 +424,63 @@ end
 
 
 # TODO these are kinda hacky - should probably depend on native.out_types
-return!(result::ASet, returned::Union{Vector, ASet}) = foreach(returned -> return!(result, returned), returned)
-return!(result::ASet, returned::Tuple) = push!(result, returned)
-return!(result::ASet, returned::Bool) = returned && push!(result, ())
-return!(result::ASet, returned::Void) = nothing
-return!(result::ASet, returned) = push!(result, (returned,))
+function return!(result::Union{Void, ASet}, returned::Union{ASet, ASet})
+    foreach(returned -> result = return!(result, returned), returned)
+    result
+end
+function return!(result::Union{Void, ASet}, returned::Tuple)
+    if result == nothing
+        ISet([returned])
+    else
+        push!(result, returned)
+        result
+    end
+end
+function return!(result::Union{Void, ASet}, returned::Bool)
+    if returned
+        if result == nothing
+            result = ISet{Tuple{}}([()])
+        else
+            push!(result, ())
+        end
+    end
+    result
+end
+return!(result::Union{Void, ASet}, returned::Void) = result
+return!(result::Union{Void, ASet}, returned) = return!(result, (returned,))
 
 function _interpret(env::Env{ASet}, expr::Apply) ::ASet
     if expr.f isa Native
         f = expr.f
-        result = ISet()
+        result = nothing
         for row in interpret(env, Primitive(:tuple, expr.args))
             if length(f.in_types) == length(row)
                 if all(vt -> vt[1] isa vt[2], zip(row, f.in_types))
                     returned = Base.invokelatest(f.f, row...)
-                    return!(result, returned)
+                    result = return!(result, returned)
                 end
             elseif length(f.in_types) + length(f.out_types) == length(row)
-                tmp = ISet()
+                tmp = nothing
                 in_row = row[1:length(f.in_types)]
                 out_row = row[length(f.in_types)+1:end]
                 if all(vt -> vt[1] isa vt[2], zip(in_row, f.in_types))
                     returned = Base.invokelatest(f.f, in_row...)
                     # TODO we only need to tmp because we don't know how to iter over returned without return!
-                    return!(tmp, returned)
+                    tmp = return!(tmp, returned)
                 end
                 if out_row in tmp
-                    push!(result, ())
+                    if result == nothing
+                        result = ISet{Tuple{}}([()])
+                    else
+                        push!(result, ())
+                    end
                 end
             else
                 # TODO technically these other cases have valid semantics, but I don't care to execute them just yet
                 compile_error("Cannot apply $f to $row")
             end
         end
-        result
+        result == nothing ? ESet() : result
     else
         # fallback to default
         invoke(_interpret, Tuple{Env, Apply}, env, expr)
@@ -865,14 +893,18 @@ function _interpret(env::Env, expr::ConjunctiveQuery, var_ix::Int64)::ASet
     else
         var = expr.query_vars[var_ix]
         bound = expr.query_bounds[var_ix]
-        result = ISet()
+        result = nothing
         for var_row in interpret(env, bound)
             env[var] = SSet([var_row])
             for value_row in _interpret(env, expr, var_ix+1)
-                push!(result, (var_row..., value_row...))
+                if result == nothing
+                    result = ISet([(var_row..., value_row...)])
+                else
+                    push!(result, (var_row..., value_row...))
+                end
             end
         end
-        result
+        result == nothing ? ESet() : result
     end
 end
 
@@ -1118,7 +1150,8 @@ function build_indexes(env::Env, expr::Expr)::Expr
         Apply(f && Permute(Var(_, 0), columns, _), args) where (length(columns) == length(args)+1) => begin
             index = Dict{Tuple, ASet}()
             for row in interpret(env, f)
-                push!(get!(() -> ISet(), index, row[1:end-1]), row[end:end])
+                value = row[end:end]
+                push!(get!(() -> ISet{typeof(value)}(), index, row[1:end-1]), value)
             end
             Lookup(index, args)
         end
