@@ -311,20 +311,7 @@ end
 function _interpret(env::Env, expr::Apply)::ASet
     f = interpret(env, expr.f)
     for arg in map((arg) -> interpret(env, arg), expr.args)
-        result = nothing
-        for n in map(length, arg)
-            for row in f
-                if (length(row) >= n) && (row[1:n] in arg)
-                    value = row[n+1:end]
-                    if(result == nothing)
-                        result = ISet([value])
-                    else
-                        push!(result, value)
-                    end
-                end
-            end
-        end
-        f = result == nothing ? ESet() : result
+        f = ISet((row[n+1:end] for n in map(length, arg), row in f if (length(row) >= n) && (row[1:n] in arg)))
     end
     f
 end
@@ -334,14 +321,18 @@ function _interpret(env::Env, expr::Abstract, var_ix::Int64)::ASet
         interpret(env, expr.value)
     else
         var = expr.vars[var_ix]
-        result = ISet()
+        result = nothing
         for var_row in env[Var(:everything)]
-            env[var] = ISet([var_row])
+            env[var] = SSet([var_row])
             for value_row in _interpret(env, expr, var_ix+1)
-                push!(result, (var_row..., value_row...))
+                if(result == nothing)
+                    result = ISet([(var_row..., value_row...)])
+                else
+                    push!(result, (var_row..., value_row...))
+                end
             end
         end
-        result
+        result == nothing ? ESet() : result
     end
 end
 
@@ -413,7 +404,7 @@ function _interpret(env::Env{ASet}, expr::Primitive) ::ASet
                 (:exists, [arg]) => bool_to_set(arg != false_set)
                 (:forall, [arg]) => bool_to_set(arg == env[Var(:everything)])
                 (:tuple, args) => reduce(true_set, args) do a, b
-                    ISet(((a_row..., b_row...) for a_row in a for b_row in b))
+                    ISet(((a_row..., b_row...) for a_row in a, b_row in b if true)) #`if true` is a trick to keep it a `Generator`
                 end
                 (:compose, [a, b]) => ISet(((a_row[1:end-1]..., b_row[2:end]...) for a_row in a for b_row in b if (length(a_row) > 0 && length(b_row) > 0) && a_row[end] == b_row[1]))
                 _ => error("Unknown primitive: $expr")
