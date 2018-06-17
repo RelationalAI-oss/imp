@@ -299,7 +299,34 @@ end
 
 # --- interpret ---
 
-const Env{T} = Dict{Var, T}
+"""
+[`Env`](@ref) is a wrapper for the environment variables and type configuration
+for the [`Set`](@ref)-type used for storing the intermediate and final resultsets.
+
+T: type of values in the environment
+SetT: [`Set`](@ref)-type used for storing the intermediate and final resultsets
+"""
+struct Env{T, SetT}
+  env::Dict{Var, T}
+
+  Env{T, SetT}() where {T, SetT} = new{T, SetT}(Dict{Var, T}())
+  Env{T, SetT}(iter) where {T, SetT} = new{T, SetT}(Dict{Var, T}(iter))
+  Env{T, SetT}(iter...) where {T, SetT} = new{T, SetT}(Dict{Var, T}(iter...))
+  Env{T}() where {T} = Env{T, ISet}()
+  Env{T}(iter) where {T} = Env{T, ISet}(iter)
+  Env{T}(iter...) where {T} = Env{T, ISet}(iter...)
+end
+Base.getindex(env::Env, key) = getindex(env.env, key)
+Base.setindex!(env::Env, value, key) = setindex!(env.env, value, key)
+Base.merge(env::Env{T, SetT}, dict::Dict{Var, T}) where {T, SetT} = Env{T, SetT}(merge(env.env, dict))
+Base.copy(env::Env{T, SetT}) where {T, SetT} = Env{T, SetT}(env.env)
+Base.push!(env::Env{T, SetT}, elem) where {T, SetT} = (push!(env.env, elem); env)
+Base.start(env::Env) = start(env.env)
+Base.done(env::Env,state) = done(env.env, state)
+Base.next(env::Env,state) = next(env.env, state)
+Base.eltype(env::Env) = eltype(env.env)
+Base.length(env::Env) = length(env.env)
+
 function interpret(env::Env, expr::Expr)::ASet
     _interpret(env, expr)
 end
@@ -308,15 +335,15 @@ function _interpret(env::Env{T}, expr::Var)::T where T
     env[expr]
 end
 
-function _interpret(env::Env, expr::Apply)::ASet
+function _interpret(env::Env{T, SetT}, expr::Apply)::ASet where {T, SetT}
     f = interpret(env, expr.f)
     for arg in map((arg) -> interpret(env, arg), expr.args)
-        f = ISet((row[n+1:end] for n in map(length, arg), row in f if (length(row) >= n) && (row[1:n] in arg)))
+        f = SetT((row[n+1:end] for n in map(length, arg), row in f if (length(row) >= n) && (row[1:n] in arg)))
     end
     f
 end
 
-function _interpret(env::Env, expr::Abstract, var_ix::Int64)::ASet
+function _interpret(env::Env{T, SetT}, expr::Abstract, var_ix::Int64)::ASet where {T, SetT}
     if var_ix > length(expr.vars)
         interpret(env, expr.value)
     else
@@ -326,7 +353,7 @@ function _interpret(env::Env, expr::Abstract, var_ix::Int64)::ASet
             env[var] = SSet([var_row])
             for value_row in _interpret(env, expr, var_ix+1)
                 if(result == nothing)
-                    result = ISet([(var_row..., value_row...)])
+                    result = SetT([(var_row..., value_row...)])
                 else
                     push!(result, (var_row..., value_row...))
                 end
@@ -361,14 +388,24 @@ end
 
 Base.getindex(func::IndexedFunc, key...) = func.f(key...)
 
-function _interpret(env::Env{ASet}, expr::Primitive) ::ASet
+function _interpret(env::Env{ASet, SetT}, expr::Primitive) ::ASet where {SetT}
     @match (expr.f, expr.args) begin
         (:reduce, [raw_op, raw_init, raw_values]) => begin
             op = if raw_op isa ConjunctiveQuery
-                # TODO this is such a mess - need to at least reorder variables - not correct to assume that input vars get ordered first
-                @assert raw_op.query_vars[1:2] == raw_op.yield_vars[1:2]
-                (var_a, var_b) = raw_op.query_vars[1:2]
-                raw_op = ConjunctiveQuery(setdiff(raw_op.yield_vars, [var_a, var_b]), raw_op.query_vars[3:end], raw_op.query_bounds[3:end], raw_op.clauses)
+                (var_a, var_b) = raw_op.yield_vars[1:2]
+                
+                # Recreate query_bounds and query_vars excluding var_a and var_b.
+                qbounds = Expr[]
+                qvars = Var[]
+                for i in 1:length(raw_op.query_vars)
+                    v = raw_op.query_vars[i]
+                    if v != var_a && v != var_b
+                        push!(qvars, v)
+                        push!(qbounds, raw_op.query_bounds[i])
+                    end
+                end
+
+                raw_op = ConjunctiveQuery(setdiff(raw_op.yield_vars, [var_a, var_b]), qvars, qbounds, raw_op.clauses)
                 operation(a,b) = begin
                     env[var_a] = SSet([(a,)])
                     env[var_b] = SSet([(b[end],)])
@@ -404,9 +441,9 @@ function _interpret(env::Env{ASet}, expr::Primitive) ::ASet
                 (:exists, [arg]) => bool_to_set(arg != false_set)
                 (:forall, [arg]) => bool_to_set(arg == env[Var(:everything)])
                 (:tuple, args) => reduce(true_set, args) do a, b
-                    ISet(((a_row..., b_row...) for a_row in a, b_row in b if true)) #`if true` is a trick to keep it a `Generator`
+                    SetT(((a_row..., b_row...) for a_row in a, b_row in b if true)) #`if true` is a trick to keep it a `Generator`
                 end
-                (:compose, [a, b]) => ISet(((a_row[1:end-1]..., b_row[2:end]...) for a_row in a for b_row in b if (length(a_row) > 0 && length(b_row) > 0) && a_row[end] == b_row[1]))
+                (:compose, [a, b]) => SetT(((a_row[1:end-1]..., b_row[2:end]...) for a_row in a for b_row in b if (length(a_row) > 0 && length(b_row) > 0) && a_row[end] == b_row[1]))
                 _ => error("Unknown primitive: $expr")
             end
         end
@@ -415,32 +452,32 @@ end
 
 
 # TODO these are kinda hacky - should probably depend on native.out_types
-function return!(result::Union{Void, ASet}, returned::Union{ASet, ASet})
-    foreach(returned -> result = return!(result, returned), returned)
+function return!(::Type{SetT}, result::Union{Void, ASet}, returned::Union{ASet, ASet}) where {SetT}
+    foreach(returned -> result = return!(SetT, result, returned), returned)
     result
 end
-function return!(result::Union{Void, ASet}, returned::Tuple)
+function return!(::Type{SetT}, result::Union{Void, ASet}, returned::Tuple) where {SetT}
     if result == nothing
-        ISet([returned])
+        SetT([returned])
     else
         push!(result, returned)
         result
     end
 end
-function return!(result::Union{Void, ASet}, returned::Bool)
+function return!(::Type{SetT}, result::Union{Void, ASet}, returned::Bool) where {SetT}
     if returned
         if result == nothing
-            result = ISet{Tuple{}}([()])
+            result = SetT{Tuple{}}([()])
         else
             push!(result, ())
         end
     end
     result
 end
-return!(result::Union{Void, ASet}, returned::Void) = result
-return!(result::Union{Void, ASet}, returned) = return!(result, (returned,))
+return!(::Type{SetT}, result::Union{Void, ASet}, returned::Void) where {SetT} = result
+return!(::Type{SetT}, result::Union{Void, ASet}, returned) where {SetT} = return!(SetT, result, (returned,))
 
-function _interpret(env::Env{ASet}, expr::Apply) ::ASet
+function _interpret(env::Env{ASet, SetT}, expr::Apply) ::ASet where {SetT}
     if expr.f isa Native
         f = expr.f
         result = nothing
@@ -448,7 +485,7 @@ function _interpret(env::Env{ASet}, expr::Apply) ::ASet
             if length(f.in_types) == length(row)
                 if all(vt -> vt[1] isa vt[2], zip(row, f.in_types))
                     returned = Base.invokelatest(f.f, row...)
-                    result = return!(result, returned)
+                    result = return!(SetT, result, returned)
                 end
             elseif length(f.in_types) + length(f.out_types) == length(row)
                 tmp = nothing
@@ -457,11 +494,11 @@ function _interpret(env::Env{ASet}, expr::Apply) ::ASet
                 if all(vt -> vt[1] isa vt[2], zip(in_row, f.in_types))
                     returned = Base.invokelatest(f.f, in_row...)
                     # TODO we only need to tmp because we don't know how to iter over returned without return!
-                    tmp = return!(tmp, returned)
+                    tmp = return!(SetT, tmp, returned)
                 end
                 if out_row in tmp
                     if result == nothing
-                        result = ISet{Tuple{}}([()])
+                        result = SetT{Tuple{}}([()])
                     else
                         push!(result, ())
                     end
@@ -485,7 +522,7 @@ const TSetType = TSet{RowType}
 
 row_type(row::Tuple) = map(typeof, row)
 set_type(set::TSet) = map(row_type, set)
-env_types(env::Env{ASet}) = Env{TSetType}(name => set_type(set) for (name, set) in env)
+env_types(env::Env{ASet}) = Env{TSetType, Set}(name => set_type(set) for (name, set) in env)
 
 const bool_type = TSetType([()])
 const false_type = TSetType([])
@@ -817,7 +854,7 @@ end
 
 function lower(env::Env{ASet}, types::TSet{Type}, expr::Expr)::Expr
     last_id = Ref(0)
-    env_arities = Env{NSet}((name => NSet(length(row) for row in set) for (name, set) in env))
+    env_arities = Env{NSet, Set}((name => NSet(length(row) for row in set) for (name, set) in env))
     env_arities[Var(:everything)] = NSet(1)
 
     arities = infer_arity(env_arities, expr)
@@ -869,12 +906,12 @@ function unparse(expr::Union{Permute, ConjunctiveQuery})
     end
 end
 
-function _interpret(env::Env, expr::Permute)::ASet
-    ISet((row[expr.columns] for row in interpret(env, expr.arg)
+function _interpret(env::Env{T, SetT}, expr::Permute)::ASet where {T, SetT}
+    SetT((row[expr.columns] for row in interpret(env, expr.arg)
          if all((d) -> row[d[1]] == row[d[2]], expr.dupe_columns)))
 end
 
-function _interpret(env::Env, expr::ConjunctiveQuery, var_ix::Int64)::ASet
+function _interpret(env::Env{T, SetT}, expr::ConjunctiveQuery, var_ix::Int64)::ASet where {T, SetT}
     if var_ix > length(expr.query_vars)
         if isempty(expr.clauses)
             SSet([()])
@@ -889,7 +926,7 @@ function _interpret(env::Env, expr::ConjunctiveQuery, var_ix::Int64)::ASet
             env[var] = SSet([var_row])
             for value_row in _interpret(env, expr, var_ix+1)
                 if result == nothing
-                    result = ISet([(var_row..., value_row...)])
+                    result = SetT([(var_row..., value_row...)])
                 else
                     push!(result, (var_row..., value_row...))
                 end
@@ -899,9 +936,9 @@ function _interpret(env::Env, expr::ConjunctiveQuery, var_ix::Int64)::ASet
     end
 end
 
-function _interpret(env::Env, expr::ConjunctiveQuery)::ASet
+function _interpret(env::Env{T, SetT}, expr::ConjunctiveQuery)::ASet where {T, SetT}
     yield_ixes = map(var -> findfirst(isequal(var), expr.query_vars), expr.yield_vars)
-    ISet((row[yield_ixes] for row in _interpret(env, expr, 1)))
+    SetT((row[yield_ixes] for row in _interpret(env, expr, 1)))
 end
 
 function permute(bound_vars::Vector{Var}, expr::Apply)::Expr
@@ -1136,13 +1173,13 @@ function _interpret(env::Env, expr::Lookup)::ASet
     get(expr.index, row, false_set)
 end
 
-function build_indexes(env::Env, expr::Expr)::Expr
+function build_indexes(env::Env{T, SetT}, expr::Expr)::Expr where {T, SetT}
     @match map_expr(expr -> build_indexes(env, expr), expr) begin
         Apply(f && Permute(Var(_, 0), columns, _), args) where (length(columns) == length(args)+1) => begin
             index = Dict{Tuple, ASet}()
             for row in interpret(env, f)
                 value = row[end:end]
-                push!(get!(() -> ISet{typeof(value)}(), index, row[1:end-1]), value)
+                push!(get!(() -> SetT{typeof(value)}(), index, row[1:end-1]), value)
             end
             Lookup(index, args)
         end
@@ -1159,15 +1196,15 @@ Base.:-(a::Pass, b::Pass) = Int64(a) - Int64(b)
 Base.:+(a::Pass, b::Int64) = Pass(Int64(a) + b)
 Base.:-(a::Pass, b::Int64) = Pass(Int64(a) - b)
 
-global_env = Env{ASet}()
-global_lib = Env{Expr}()
+global_env = Env{ASet, ISet}()
+global_lib = Env{Expr, Set}()
 
 function imp(expr; globals=nothing, env=global_env, lib=global_lib, types=nothing, everything=nothing, passes=instances(Pass))
     if env == nothing
         if globals != nothing
-            env = Env{ASet}(Var(name) => set for (name, set) in globals)
+            env = Env{ASet, ISet}(Var(name) => set for (name, set) in globals)
         else
-            env = Env{ASet}()
+            env = Env{ASet, ISet}()
         end
     end
     if everything != nothing
