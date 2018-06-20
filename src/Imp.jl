@@ -3,6 +3,7 @@ module Imp
 import MacroTools
 import MacroTools: @capture
 using Rematch
+using ..Common
 
 # Abstract Interpreter Set type (used for input/intermediate/output data collections)
 const ASet = Set
@@ -103,6 +104,12 @@ end
 struct ApplyHigher <: Expr
     f::Expr
     args::Vector{Expr}
+end
+
+# same semantics as Abstract, but instead of lowering to first-order we keep it in function form
+struct Op <: Expr
+    vars::Vector{Var}
+    value::Expr
 end
 
 @generated function Base.:(==)(a::T, b::T) where {T <: Expr}
@@ -248,7 +255,7 @@ function separate_scopes(scope::Scope, expr::Var)
     Var(expr.name, id)
 end
 
-function separate_scopes(scope::Scope, expr::Union{Abstract, AbstractHigher})
+function separate_scopes(scope::Scope, expr::Union{Abstract, AbstractHigher, Op})
     scope = Scope(copy(scope.current), scope.used)
     for var in expr.vars
         scope.current[var.name] = scope.used[var.name] = get(scope.used, var.name, 0) + 1
@@ -338,7 +345,7 @@ end
 function _interpret(env::Env{T, SetT}, expr::Apply)::ASet where {T, SetT}
     f = interpret(env, expr.f)
     for arg in map((arg) -> interpret(env, arg), expr.args)
-        f = SetT((row[n+1:end] for n in map(length, arg), row in f if (length(row) >= n) && (row[1:n] in arg)))
+        f = SetT((row[n+1:end] for n in Set{Int64}((length(row) for row in arg)), row in f if (length(row) >= n) && (row[1:n] in arg)))
     end
     f
 end
@@ -390,6 +397,24 @@ Base.getindex(func::IndexedFunc, key...) = func.f(key...)
 
 function _interpret(env::Env{ASet, SetT}, expr::Primitive) ::ASet where {SetT}
     @match (expr.f, expr.args) begin
+        # unlike other primitive args, we don't *need* to materialize Op
+        (:reduce, [Op([var_a, var_b], op_expr), init_expr, values_expr]) => begin
+            op(a,b) = begin
+                env[var_a] = SSet([(a,)])
+                env[var_b] = SSet([(b[end],)])
+                result = interpret(env, op_expr)
+                @assert length(result) == 1
+                @assert length(first(result)) == 1
+                first(first(result))
+            end
+            inits = interpret(env, init_expr)
+            @assert length(inits) == 1
+            @assert length(first(inits)) == 1
+            init = first(inits)[1]
+            values = interpret(env, values_expr)
+            value = reduce(op, init, values)
+            SSet([(value,)])
+        end
         (:reduce, [raw_op, raw_init, raw_values]) => begin
             op = if raw_op isa ConjunctiveQuery
                 (var_a, var_b) = raw_op.yield_vars[1:2]
@@ -651,6 +676,15 @@ end
 
 # --- lower ---
 
+function unparse(expr::Op)
+    @match (vars, value) = map_expr(unparse, tuple, expr)
+    :(($(vars...),) -> $value)
+end
+
+function _interpret(env::Env{TSetType}, expr::Op) ::TSetType
+    _interpret(env, Abstract(expr.vars, expr.value))
+end
+
 const Arity = Union{Int64, Void} # false has arity nothing
 
 function arity(arities::NSet)::Arity
@@ -786,10 +820,12 @@ function simple_apply(arity::Dict{Expr, Arity}, last_id::Ref{Int64}, expr::Expr)
                                                 [Primitive(:&, [Primitive(:exists, [apply(c)]), apply(t, slots)]),
                                                  Primitive(:&, [Primitive(:!, [apply(c)]), apply(f, slots)])])
 
-        # reduce(...)[slot] => slot==reduce(...)
-        Primitive(:reduce, args) => begin
+        # reduce(...)[slot] => reduce(...)(slot)
+        Primitive(:reduce, [op, init, values]) => begin
             @match [slot] = slots
-            Primitive(:(==), [slot, Primitive(:reduce, map(apply, args))])
+            @match Abstract([op_slot1, op_slot2, op_slots...], op_body) = apply(op)
+            simple_op = Op([op_slot1, op_slot2], Abstract(op_slots, op_body))
+            Apply(Primitive(:reduce, [simple_op, apply(init), apply(values)]), [slot])
         end
 
         # E(arg)[] => E(arg[...])
@@ -804,7 +840,10 @@ function simple_apply(arity::Dict{Expr, Arity}, last_id::Ref{Int64}, expr::Expr)
 
         # TODO this can't be interpreted until after bounding
         # n[slots...] => n(slots...)
-        Native(_, _, _) => Apply(expr, slots)
+        Native(_, in_types, _) => begin
+            n = length(in_types)
+            Apply(Apply(expr, slots[1:n]), slots[n+1:end])
+        end
 
         # ((vars...) -> value)[slots...] => value[vars... = slots...]
         Abstract(vars, value) => begin
@@ -991,21 +1030,15 @@ end
 
 # TODO this has a lot of overlap with bound_clauses - could probably combine them
 function order_vars(bound_vars::Vector{Var}, vars::Vector{Var}, clauses::Vector{Expr})
+    bound_vars = copy(bound_vars)
     supported = Set(bound_vars)
     remaining = copy(vars)
     ordered = Var[]
     while !isempty(remaining)
         for clause in clauses
             @match clause begin
-                Apply(f::Var, args) => begin
-                    for arg in args
-                        if arg isa Var
-                            push!(supported, arg)
-                        end
-                    end
-                end
-                Apply(f::Native, args) => begin
-                    if all(in(ordered), args[1:length(f.in_types)])
+                Apply(f, args) => begin
+                    if all(in(bound_vars), free_vars(f))
                         for arg in args
                             if arg isa Var
                                 push!(supported, arg)
@@ -1031,6 +1064,7 @@ function order_vars(bound_vars::Vector{Var}, vars::Vector{Var}, clauses::Vector{
             break
         end
         push!(ordered, remaining[ix])
+        push!(bound_vars, remaining[ix])
         deleteat!(remaining, ix)
     end
     ordered
@@ -1046,6 +1080,7 @@ function conjunctive_query(expr::Abstract)::Expr
         Constant(value) where (value == true_set) => nothing
         Apply(f, vars) => begin
             push!(clauses, expr)
+            append!(used_vars, free_vars(f))
             append!(used_vars, filter(v -> v isa Var, vars))
         end
         Primitive(:(==), [a, b]) => begin
@@ -1077,28 +1112,33 @@ function conjunctive_query(expr::Abstract)::Expr
     ConjunctiveQuery(copy(expr.vars), query_vars, Expr[], clauses)
 end
 
+function free_vars(expr::Expr)::Set{Var}
+    free_vars = Set{Var}()
+    visit!(bound_vars::Set{Var}, expr::Expr) = @match expr begin
+        Var(_, scope) => if scope > 0 && !(expr in bound_vars)
+            push!(free_vars, expr)
+        end
+        Abstract(vars, value) => visit!(Set{Var}(union(bound_vars, vars)), value)
+        Op(vars, value) => visit!(Set{Var}(union(bound_vars, vars)), value)
+        _ => map_expr(expr -> visit!(bound_vars, expr), (args...) -> nothing, expr)
+    end
+    visit!(Set{Var}(), expr)
+    free_vars
+end
+
 function bound_clauses(bound_vars::Vector{Var}, var::Var, clauses::Vector{Expr})
     remaining = Expr[]
     bounds = Expr[]
     for clause in clauses
         @match clause begin
-            Apply(f::Var, args) => begin
-                if var in args
+            Apply(f, args) => begin
+                if issubset(free_vars(f), bound_vars) && (var in args)
                     push!(bounds, permute(bound_vars, var, clause))
-                end
-                if !issubset(args, union(bound_vars, [var]))
-                    push!(remaining, clause)
-                end
-            end
-            Apply(f::Native, args) => begin
-                if all(in(bound_vars), args[1:length(f.in_types)]) &&
-                    (var in args[length(f.in_types)+1:end])
-                    inner_apply = Apply(f, args[1:length(f.in_types)])
-                    outer_apply = Apply(inner_apply, args[length(f.in_types)+1:end])
-                    push!(bounds, permute(bound_vars, var, outer_apply))
-                end
-                if !(issubset(args, union(bound_vars, [var])) &&
-                     (var in args[length(f.in_types)+1:end]))
+                    if !issubset(args, union(bound_vars, [var]))
+                        # still more work to do
+                        push!(remaining, clause)
+                    end
+                else
                     push!(remaining, clause)
                 end
             end
@@ -1143,18 +1183,15 @@ function bound_abstract(bound_vars::Vector{Var}, expr::Expr)::Expr
             clause_bound_vars = vcat(bound_vars, query.query_vars)
             clauses = map(clauses) do clause
                 @match clause begin
-                    Apply(f::Var, args) where issubset(args, union(clause_bound_vars, [Var(:everything)])) => permute(clause_bound_vars, clause)
-                    Apply(f::Native, args) where issubset(args, union(clause_bound_vars, [Var(:everything)])) => begin
-                        inner_apply = Apply(f, args[1:length(f.in_types)])
-                        outer_apply = Apply(inner_apply, args[length(f.in_types)+1:end])
-                        permute(bound_vars, outer_apply)
-                    end
+                    Apply(f, args) where issubset(args, union(clause_bound_vars, [Var(:everything)])) => permute(clause_bound_vars, clause)
                     _ => clause
                 end
             end
             clauses = map(expr -> bound_abstract(clause_bound_vars, expr), clauses)
             ConjunctiveQuery(query.yield_vars, ordered_vars, bounds, clauses)
         end
+        Op(vars, value) => Op(vars, bound_abstract(vcat(bound_vars, vars), value))
+        Let(var, value, body) => Let(var, bound_abstract(bound_vars, value), bound_abstract(vcat(bound_vars, [var]), body))
         _ => map_expr(expr -> bound_abstract(bound_vars, expr), expr)
     end
 end
